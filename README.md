@@ -2,6 +2,8 @@
 
 Diario di allenamento mobile-first per il programma di 5 mesi, con sedute ogni martedì, giovedì e sabato.
 
+Ogni esercizio include una guida visuale integrata con attrezzo, preparazione, esecuzione, respirazione, errori comuni, sicurezza e alternativa: non serve lasciare l'app per cercare i movimenti.
+
 ## Avvio
 
 ```bash

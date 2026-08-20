@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleHelp, Dumbbell, Flame, Home, Minus, Play, Plus, RotateCcw, Settings, X } from '@lucide/svelte';
-  import { monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleHelp, Dumbbell, Flame, Home, Lightbulb, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { Session, SetLog, WorkoutType } from '$lib/types';
 
   let { data } = $props();
@@ -43,6 +43,7 @@
   let saving = $state(false);
   let toast = $state('');
   let infoOpen = $state(false);
+  let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
   let sessions = $state<Record<string, Session>>(initialSessions());
 
   const today = new Date();
@@ -297,9 +298,12 @@
         <div class="mt-7 space-y-4">
           {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
             <section class="card overflow-hidden">
-              <div class="flex items-start justify-between p-5 pb-3">
+              <div class="flex items-start justify-between gap-3 p-5 pb-3">
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
-                <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
+                <div class="flex shrink-0 items-center gap-2">
+                  <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
+                  <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
+                </div>
               </div>
               {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
               <div class="border-t border-black/[0.05] px-3 pb-3">
@@ -353,6 +357,85 @@
       <div class="mt-5 rounded-2xl bg-lime/30 p-4 text-sm leading-6"><strong>Fine prevista:</strong> {new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }).format(programEnd(startDate))}</div>
       <div class="mt-5 space-y-3 text-sm leading-6 text-muted"><p><strong class="text-ink">Niente massimali.</strong> Interrompi la serie se la tecnica peggiora.</p><p><strong class="text-ink">Progressione.</strong> Aumenta il peso solo dopo aver raggiunto il massimo delle ripetizioni in tutte le serie.</p><p><strong class="text-ink">Collo.</strong> Mese 1 solo isometrie; dal mese 2 banda leggerissima se tutto è tranquillo.</p></div>
     </section>
+  </div>
+{/if}
+
+{#if activeGuide}
+  {@const guideExercise = workouts[activeGuide.type].exercises[activeGuide.index]}
+  {@const guide = exerciseGuides[activeGuide.exerciseId]}
+  {@const panelCount = workouts[activeGuide.type].exercises.length}
+  <div class="fixed inset-0 z-[55] overflow-y-auto bg-cream">
+    <div class="mx-auto min-h-screen max-w-lg pb-10">
+      <header class="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.05] bg-cream/95 px-5 py-4 backdrop-blur">
+        <button class="icon-button" onclick={() => activeGuide = null} aria-label="Torna alla seduta"><ChevronLeft size={21} /></button>
+        <p class="text-sm font-bold">Come si esegue</p>
+        <span class="w-11"></span>
+      </header>
+
+      <main class="px-5 pt-5">
+        <div class="overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" style={`aspect-ratio: ${864 / (1821 / panelCount)}`}>
+          <div class="relative h-full w-full overflow-hidden">
+            <img
+              class="absolute left-0 top-0 h-auto w-full max-w-none"
+              style={`transform: translateY(-${activeGuide.index / panelCount * 100}%)`}
+              src={`/guides/workout-${activeGuide.type.toLowerCase()}.webp`}
+              alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`}
+            />
+          </div>
+        </div>
+
+        <p class="eyebrow mt-6">Seduta {activeGuide.type} · esercizio {activeGuide.index + 1}</p>
+        <h1 class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{guideExercise.name}</h1>
+        <p class="mt-2 text-sm font-semibold text-moss">{guideExercise.sets} serie · {guideExercise.reps}</p>
+
+        <section class="card mt-6 p-5">
+          <div class="flex gap-4">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime/50"><Wrench size={18} /></span>
+            <div><p class="eyebrow">Cosa cercare</p><h2 class="mt-1 font-bold">Attrezzo</h2><p class="mt-2 text-sm leading-6 text-muted">{guide.equipment}</p></div>
+          </div>
+        </section>
+
+        <section class="card mt-3 p-5">
+          <div class="flex gap-4">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-lime"><Play size={17} fill="currentColor" /></span>
+            <div class="min-w-0 flex-1">
+              <p class="eyebrow">Preparazione</p>
+              <p class="mt-2 text-sm leading-6 text-muted">{guide.setup}</p>
+              <div class="mt-5 space-y-4">
+                {#each guide.steps as step, index}
+                  <div class="flex gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-lime text-xs font-extrabold">{index + 1}</span><p class="pt-0.5 text-sm leading-6">{step}</p></div>
+                {/each}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <section class="card p-5"><Wind class="text-moss" size={20} /><p class="eyebrow mt-4">Respirazione</p><p class="mt-2 text-sm leading-6 text-muted">{guide.breathing}</p></section>
+          <section class="card p-5"><Target class="text-moss" size={20} /><p class="eyebrow mt-4">Cosa sentire</p><p class="mt-2 text-sm leading-6 text-muted">{guide.feel}</p></section>
+        </div>
+
+        <section class="card mt-3 p-5">
+          <div class="flex gap-4">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-800"><TriangleAlert size={18} /></span>
+            <div><p class="eyebrow">Occhio a questi</p><h2 class="mt-1 font-bold">Errori comuni</h2><ul class="mt-3 space-y-2 text-sm leading-6 text-muted">{#each guide.mistakes as mistake}<li class="flex gap-2"><X class="mt-1 shrink-0 text-amber-700" size={14} /><span>{mistake}</span></li>{/each}</ul></div>
+          </div>
+        </section>
+
+        {#if guide.safety}
+          <section class="mt-3 rounded-[1.75rem] bg-ink p-5 text-white">
+            <p class="text-xs font-bold uppercase tracking-[0.15em] text-lime">Sicurezza</p><p class="mt-2 text-sm leading-6 text-white/75">{guide.safety}</p>
+          </section>
+        {/if}
+
+        <section class="card mt-3 p-5">
+          <div class="flex gap-4"><Lightbulb class="mt-0.5 shrink-0 text-moss" size={20} /><div><p class="eyebrow">Se non è disponibile</p><h2 class="mt-1 font-bold">Alternativa</h2><p class="mt-2 text-sm leading-6 text-muted">{guide.alternative}</p></div></div>
+        </section>
+
+        <button class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink py-4 font-bold text-white" onclick={() => activeGuide = null}><ChevronLeft size={18} /> Torna all’allenamento</button>
+        <p class="mx-auto mt-4 max-w-sm text-center text-[0.68rem] leading-5 text-muted">Le illustrazioni sono orientative: le macchine possono cambiare forma. Se hai dubbi sulla tecnica o dolore, chiedi a un trainer qualificato.</p>
+      </main>
+    </div>
   </div>
 {/if}
 

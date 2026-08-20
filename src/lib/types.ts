@@ -13,6 +13,17 @@ export type Exercise = {
   note?: string;
 };
 
+export type ExerciseGuide = {
+  equipment: string;
+  setup: string;
+  steps: string[];
+  breathing: string;
+  feel: string;
+  mistakes: string[];
+  alternative: string;
+  safety?: string;
+};
+
 export type SetLog = {
   setNumber: number;
   reps: number | null;
