@@ -11,8 +11,8 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'row', name: 'Seated cable row', sets: 4, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 35, unit: 'kg', increment: 5, note: 'Usa lo scatto minimo della macchina.' },
       { id: 'lateral', name: 'Lateral raises', sets: 3, reps: '12–15', minReps: 12, maxReps: 15, startWeight: 5, unit: 'kg/mano', increment: 1 },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
-      { id: 'carry', name: 'Farmer carry', sets: 4, reps: '30–40 m', startWeight: 16, unit: 'kg/mano', increment: 2, note: 'Inserisci i metri nel campo reps.' },
-      { id: 'neck-iso', name: 'Neck isometrics', sets: 2, reps: '20–30 sec/direzione', startWeight: null, unit: 'sec', increment: null, note: 'Solo pressione delicata contro la mano nel mese 1.' }
+      { id: 'carry', name: 'Farmer carry', sets: 4, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'neck-iso', name: 'Neck isometrics', sets: 2, reps: '20–30 sec/direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Solo pressione delicata contro la mano nel mese 1.' }
     ]
   },
   B: {
@@ -26,8 +26,8 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'split-squat', name: 'Bulgarian split squat', sets: 3, reps: '8–10/gamba', minReps: 8, maxReps: 10, startWeight: 0, unit: 'kg/mano', increment: 2, note: 'Inizia a corpo libero; aggiungi peso solo con controllo.' },
       { id: 'face-pull', name: 'Face pull', sets: 3, reps: '12–15', minReps: 12, maxReps: 15, startWeight: 15, unit: 'kg', increment: 5 },
       { id: 'shrug', name: 'Shrug con manubri', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 16, unit: 'kg/mano', increment: 2 },
-      { id: 'dead-hang', name: 'Dead hang', sets: 3, reps: '20–40 sec', startWeight: null, unit: 'sec', increment: null },
-      { id: 'neck-lateral', name: 'Neck lateral isometric', sets: 2, reps: '20 sec/lato', startWeight: null, unit: 'sec', increment: null }
+      { id: 'dead-hang', name: 'Dead hang', sets: 3, reps: '20–40 sec', startWeight: null, unit: 'sec', increment: null, tracking: 'timed' },
+      { id: 'neck-lateral', name: 'Neck lateral isometric', sets: 2, reps: '20 sec/lato', startWeight: null, unit: 'sec', increment: null, tracking: 'timed' }
     ]
   },
   C: {
@@ -42,16 +42,16 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'lateral', name: 'Lateral raises', sets: 4, reps: '12–20', minReps: 12, maxReps: 20, startWeight: 5, unit: 'kg/mano', increment: 1 },
       { id: 'pushdown', name: 'Triceps pushdown', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: null, unit: 'kg', increment: 5, note: 'Scegli un peso facile/moderato.' },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
-      { id: 'carry', name: 'Farmer carry', sets: 3, reps: '40–60 m', startWeight: 16, unit: 'kg/mano', increment: 2, note: 'Inserisci i metri nel campo reps.' },
-      { id: 'neck', name: 'Neck', sets: 2, reps: 'per direzione', startWeight: null, unit: 'sec', increment: null, note: 'Leggerissimo. Dal mese 2 puoi usare una banda.' }
+      { id: 'carry', name: 'Farmer carry', sets: 3, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'neck', name: 'Mobilità del collo', sets: 2, reps: 'per direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'mobility', note: 'Movimenti leggeri per ogni direzione, senza carico.' }
     ]
   }
 };
 
 export const monthThemes = [
-  { title: 'Riavvio', text: 'RIR 3–4. La seduta deve quasi sembrarti troppo facile.' },
-  { title: 'Tecnica', text: 'Movimenti puliti e progressione graduale. RIR 3.' },
-  { title: 'Massa', text: 'Priorità a spalle, dorsali, petto e braccia. Puoi arrivare a RIR 2.' },
+  { title: 'Riavvio', text: 'Mantieni sempre qualche ripetizione di margine: la seduta deve quasi sembrarti troppo facile.' },
+  { title: 'Tecnica', text: 'Movimenti puliti, senza arrivare al limite, e progressione graduale.' },
+  { title: 'Massa', text: 'Priorità a spalle, dorsali, petto e braccia, mantenendo una tecnica solida.' },
   { title: 'Consolidamento', text: 'Stessa struttura, tecnica stabile e piccoli progressi.' },
   { title: 'Rifinitura', text: 'Più forte sugli stessi esercizi, senza cercare massimali.' }
 ];

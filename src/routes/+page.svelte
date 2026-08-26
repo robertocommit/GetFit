@@ -1,7 +1,7 @@
 <script lang="ts">
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleHelp, Dumbbell, Flame, Home, Lightbulb, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
-  import type { Session, SetLog, WorkoutType } from '$lib/types';
+  import type { Exercise, Session, SetLog, WorkoutType } from '$lib/types';
 
   let { data } = $props();
 
@@ -41,6 +41,7 @@
   let startDate = $state(initialStartDate());
   let activeSession = $state<Session | null>(null);
   let saving = $state(false);
+  let sessionStartedAt = $state<number | null>(null);
   let toast = $state('');
   let infoOpen = $state(false);
   let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
@@ -88,9 +89,20 @@
     const logs: Record<string, SetLog[]> = {};
     for (const exercise of workouts[type].exercises) {
       const saved = existing?.logs[exercise.id] ?? [];
+      const previous = latestLogs(exercise.id, date) ?? [];
       const weight = suggestedWeight(type, exercise.id, date);
+      const mode = exercise.tracking ?? 'strength';
+      const defaultReps = mode === 'strength'
+        ? (exercise.minReps ?? null)
+        : mode === 'timed'
+          ? Number(exercise.reps.match(/\d+/)?.[0] ?? 20)
+          : mode === 'carry' ? 1 : null;
       logs[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => saved[index] ? { ...saved[index] } : {
-        setNumber: index + 1, reps: null, weight, rir: null, completed: false
+        setNumber: index + 1,
+        reps: previous[index]?.reps ?? previous[0]?.reps ?? defaultReps,
+        weight: mode === 'timed' || mode === 'mobility' ? null : (previous[index]?.weight ?? previous[0]?.weight ?? weight),
+        rir: null,
+        completed: false
       });
     }
     activeSession = {
@@ -100,15 +112,41 @@
       cardioMinutes: existing?.cardioMinutes ?? null,
       notes: existing?.notes ?? ''
     };
+    sessionStartedAt = existing?.completedAt ? null : Date.now();
   }
 
-  function adjust(set: SetLog, field: 'reps' | 'weight', amount: number) {
-    const current = set[field] ?? 0;
-    set[field] = Math.max(0, Math.round((current + amount) * 100) / 100);
+  function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
+    if (!activeSession) return;
+    for (const set of activeSession.logs[exerciseId]) set[field] = value;
+  }
+
+  function adjustAll(exerciseId: string, field: 'reps' | 'weight', amount: number) {
+    if (!activeSession) return;
+    const current = activeSession.logs[exerciseId][0]?.[field] ?? 0;
+    applyToAll(exerciseId, field, Math.max(0, Math.round((current + amount) * 100) / 100));
+  }
+
+  function inputForAll(exerciseId: string, field: 'reps' | 'weight', event: Event) {
+    const raw = (event.currentTarget as HTMLInputElement).value;
+    applyToAll(exerciseId, field, raw === '' ? null : Number(raw));
+  }
+
+  function toggleAll(exerciseId: string) {
+    if (!activeSession) return;
+    const sets = activeSession.logs[exerciseId];
+    const complete = !sets.every((set) => set.completed);
+    for (const set of sets) set.completed = complete;
+  }
+
+  function modeFor(exercise: Exercise) {
+    return exercise.tracking ?? 'strength';
   }
 
   async function saveSession(complete = false) {
     if (!activeSession) return;
+    if (complete && activeSession.durationMinutes === null && sessionStartedAt !== null) {
+      activeSession.durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60000));
+    }
     saving = true;
     const payload = { ...activeSession, completed: complete || Boolean(activeSession.completedAt) };
     const response = await fetch('/api/sessions', {
@@ -297,6 +335,8 @@
 
         <div class="mt-7 space-y-4">
           {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
+            {@const exerciseMode = modeFor(exercise)}
+            {@const exerciseLogs = activeSession.logs[exercise.id]}
             <section class="card overflow-hidden">
               <div class="flex items-start justify-between gap-3 p-5 pb-3">
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
@@ -306,26 +346,54 @@
                 </div>
               </div>
               {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
-              <div class="border-t border-black/[0.05] px-3 pb-3">
-                <div class="grid grid-cols-[2rem_1fr_1fr_3rem] gap-2 px-2 py-3 text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted"><span>Set</span><span>Kg</span><span>Reps</span><span>RIR</span></div>
-                {#each activeSession.logs[exercise.id] as set}
-                  <div class="mb-2 grid grid-cols-[2rem_1fr_1fr_3rem] items-center gap-2 rounded-2xl p-1.5 {set.completed ? 'bg-lime/25' : 'bg-cream'}">
-                    <button class="grid h-8 w-8 place-items-center rounded-full {set.completed ? 'bg-moss text-white' : 'bg-white text-muted'}" onclick={() => set.completed = !set.completed} aria-label={`Completa serie ${set.setNumber}`}>
-                      {#if set.completed}<Check size={16} />{:else}<span class="text-xs font-bold">{set.setNumber}</span>{/if}
-                    </button>
-                    <div class="flex items-center justify-center gap-1">
-                      <button class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjust(set, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso"><Minus size={13} /></button>
-                      <input class="min-w-0 w-full bg-transparent text-center text-sm font-bold outline-none" type="number" step="0.5" placeholder="—" bind:value={set.weight} aria-label="Peso" />
-                      <button class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjust(set, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso"><Plus size={13} /></button>
+              <div class="border-t border-black/[0.05] p-4">
+                {#if exerciseMode === 'strength'}
+                  <p class="eyebrow mb-2">Uguale per tutte le serie</p>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div class="rounded-2xl bg-cream p-2">
+                      <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Peso · {exercise.unit}</span>
+                      <div class="mt-1 flex items-center gap-1">
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
+                      </div>
                     </div>
-                    <div class="flex items-center justify-center gap-1">
-                      <button class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjust(set, 'reps', -1)} aria-label="Riduci ripetizioni"><Minus size={13} /></button>
-                      <input class="min-w-0 w-full bg-transparent text-center text-sm font-bold outline-none" type="number" placeholder="—" bind:value={set.reps} aria-label="Ripetizioni" />
-                      <button class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjust(set, 'reps', 1)} aria-label="Aumenta ripetizioni"><Plus size={13} /></button>
+                    <div class="rounded-2xl bg-cream p-2">
+                      <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Ripetizioni</span>
+                      <div class="mt-1 flex items-center gap-1">
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
+                      </div>
                     </div>
-                    <input class="h-8 w-full rounded-xl bg-white text-center text-sm font-bold outline-none" type="number" min="0" max="10" placeholder="—" bind:value={set.rir} aria-label="Ripetizioni in riserva" />
                   </div>
-                {/each}
+                {:else if exerciseMode === 'timed'}
+                  <div class="rounded-2xl bg-cream p-2">
+                    <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
+                    <div class="mx-auto mt-1 flex max-w-48 items-center gap-1">
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
+                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
+                    </div>
+                  </div>
+                {:else if exerciseMode === 'carry'}
+                  <label class="block rounded-2xl bg-cream p-3">
+                    <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Carico facoltativo · {exercise.unit}</span>
+                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none" type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
+                  </label>
+                {:else}
+                  <p class="rounded-2xl bg-cream p-3 text-center text-sm text-muted">Nessun peso o numero di ripetizioni da inserire.</p>
+                {/if}
+
+                <div class="mt-3 grid grid-cols-2 gap-2">
+                  {#each exerciseLogs as set}
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" onclick={() => set.completed = !set.completed} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                      <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
+                      {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
+                    </button>
+                  {/each}
+                </div>
+                <button class="mt-2 w-full rounded-xl py-2 text-xs font-bold text-moss" onclick={() => toggleAll(exercise.id)}>{exerciseLogs.every((set) => set.completed) ? 'Deseleziona tutte' : 'Segna tutte come completate'}</button>
               </div>
             </section>
           {/each}
@@ -333,10 +401,10 @@
 
         <section class="card mt-4 p-5">
           <h2 class="font-bold">Chiusura seduta</h2>
-          <p class="mt-1 text-xs text-muted">{workouts[activeSession.type].cardio}</p>
+          <p class="mt-1 text-xs leading-5 text-muted">Tutto facoltativo. Il tempo totale viene calcolato automaticamente se lo lasci vuoto. {workouts[activeSession.type].cardio}</p>
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="60" bind:value={activeSession.durationMinutes} /><span class="text-xs text-muted">min</span></span></label>
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="20" bind:value={activeSession.cardioMinutes} /><span class="text-xs text-muted">min</span></span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" bind:value={activeSession.durationMinutes} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" bind:value={activeSession.cardioMinutes} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
           </div>
           <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" bind:value={activeSession.notes}></textarea>
         </section>

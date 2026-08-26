@@ -11,6 +11,7 @@ export type Exercise = {
   unit: string;
   increment: number | null;
   note?: string;
+  tracking?: 'strength' | 'carry' | 'timed' | 'mobility';
 };
 
 export type ExerciseGuide = {
