@@ -10,13 +10,13 @@ export async function PUT({ request }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const session = await client.query<{ id: string }>(
+    const session = await client.query<{ id: string; completed_at: string | null }>(
       `INSERT INTO workout_sessions (workout_date, workout_type, duration_minutes, cardio_minutes, notes, completed_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() ELSE NULL END, now())
        ON CONFLICT (workout_date) DO UPDATE SET workout_type = EXCLUDED.workout_type,
        duration_minutes = EXCLUDED.duration_minutes, cardio_minutes = EXCLUDED.cardio_minutes,
        notes = EXCLUDED.notes, completed_at = CASE WHEN $6 THEN COALESCE(workout_sessions.completed_at, now()) ELSE NULL END,
-       updated_at = now() RETURNING id`,
+       updated_at = now() RETURNING id, completed_at::text`,
       [body.date, body.type, body.durationMinutes, body.cardioMinutes, body.notes ?? '', Boolean(body.completed)]
     );
     const sessionId = session.rows[0].id;
@@ -32,7 +32,7 @@ export async function PUT({ request }) {
       }
     }
     await client.query('COMMIT');
-    return json({ ok: true });
+    return json({ ok: true, completedAt: session.rows[0].completed_at });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error(error);

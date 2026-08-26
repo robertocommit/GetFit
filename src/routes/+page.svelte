@@ -1,9 +1,10 @@
 <script lang="ts">
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleHelp, Dumbbell, Flame, Home, Lightbulb, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { Exercise, Session, SetLog, WorkoutType } from '$lib/types';
 
-  let { data } = $props();
+  let { data, initialWorkoutDate = null } = $props<{ data: any; initialWorkoutDate?: string | null }>();
 
   function initialStartDate() {
     return data.startDate as string;
@@ -42,6 +43,11 @@
   let activeSession = $state<Session | null>(null);
   let saving = $state(false);
   let sessionStartedAt = $state<number | null>(null);
+  let autoSaveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingChanges = false;
+  let savePromise: Promise<void> | null = null;
+  let initialWorkoutOpened = false;
   let toast = $state('');
   let infoOpen = $state(false);
   let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
@@ -50,11 +56,38 @@
   const today = new Date();
   const todayKey = localKey(today);
   let plan = $derived(schedule(startDate));
-  let completedCount = $derived(Object.values(sessions).filter((session) => session.completedAt).length);
+  let dueWorkouts = $derived(plan.filter((item) => item.date <= todayKey));
+  let completedDueCount = $derived(dueWorkouts.filter((item) => sessions[item.date]?.completedAt).length);
   let currentMonth = $derived(monthNumber(startDate, todayKey));
   let currentTheme = $derived(monthThemes[currentMonth - 1]);
   let nextWorkout = $derived(plan.find((item) => item.date >= todayKey && !sessions[item.date]?.completedAt) ?? plan.at(-1));
-  let progressPercent = $derived(Math.min(100, Math.round((completedCount / Math.max(1, plan.filter((item) => item.date <= todayKey).length)) * 100)));
+  let progressPercent = $derived(Math.min(100, Math.round((completedDueCount / Math.max(1, dueWorkouts.length)) * 100)));
+  let totalCompletedSets = $derived(Object.values(sessions).reduce((total, session) => total + Object.values(session.logs).flat().filter((set) => set.completed).length, 0));
+  let totalCardioMinutes = $derived(Object.values(sessions).reduce((total, session) => total + (session.cardioMinutes ?? 0), 0));
+  let totalTrainingMinutes = $derived(Object.values(sessions).reduce((total, session) => total + (session.durationMinutes ?? 0), 0));
+
+  $effect(() => {
+    if (!initialWorkoutDate || initialWorkoutOpened) return;
+    const type = sessions[initialWorkoutDate]?.type ?? plan.find((item) => item.date === initialWorkoutDate)?.type;
+    if (!type) return;
+    initialWorkoutOpened = true;
+    openWorkout(initialWorkoutDate, type, false);
+  });
+
+  $effect(() => {
+    const persistBeforeRefresh = () => {
+      if (!activeSession || (!pendingChanges && !saving)) return;
+      const completed = sessionIsComplete(activeSession);
+      void fetch('/api/sessions', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...structuredClone(activeSession), completed }),
+        keepalive: true
+      });
+    };
+    window.addEventListener('beforeunload', persistBeforeRefresh);
+    return () => window.removeEventListener('beforeunload', persistBeforeRefresh);
+  });
 
   function localKey(date: Date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -84,7 +117,11 @@
     return reachedTop && exercise.increment ? weight + exercise.increment : weight;
   }
 
-  function openWorkout(date: string, type: WorkoutType) {
+  function openWorkout(date: string, type: WorkoutType, updateUrl = true) {
+    if (updateUrl) {
+      void goto(`/sedute/${date}`);
+      return;
+    }
     const existing = sessions[date];
     const logs: Record<string, SetLog[]> = {};
     for (const exercise of workouts[type].exercises) {
@@ -113,6 +150,7 @@
       notes: existing?.notes ?? ''
     };
     sessionStartedAt = existing?.completedAt ? null : Date.now();
+    autoSaveStatus = 'idle';
   }
 
   function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
@@ -124,11 +162,13 @@
     if (!activeSession) return;
     const current = activeSession.logs[exerciseId][0]?.[field] ?? 0;
     applyToAll(exerciseId, field, Math.max(0, Math.round((current + amount) * 100) / 100));
+    queueAutoSave();
   }
 
   function inputForAll(exerciseId: string, field: 'reps' | 'weight', event: Event) {
     const raw = (event.currentTarget as HTMLInputElement).value;
     applyToAll(exerciseId, field, raw === '' ? null : Number(raw));
+    queueAutoSave();
   }
 
   function toggleAll(exerciseId: string) {
@@ -136,32 +176,80 @@
     const sets = activeSession.logs[exerciseId];
     const complete = !sets.every((set) => set.completed);
     for (const set of sets) set.completed = complete;
+    queueAutoSave(0);
+  }
+
+  function toggleSet(set: SetLog) {
+    set.completed = !set.completed;
+    queueAutoSave(0);
   }
 
   function modeFor(exercise: Exercise) {
     return exercise.tracking ?? 'strength';
   }
 
-  async function saveSession(complete = false) {
+  function queueAutoSave(delay = 550) {
+    pendingChanges = true;
+    autoSaveStatus = 'pending';
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => { void saveSession(); }, delay);
+  }
+
+  function sessionIsComplete(session: Session) {
+    return workouts[session.type].exercises.every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed));
+  }
+
+  async function saveSession() {
     if (!activeSession) return;
-    if (complete && activeSession.durationMinutes === null && sessionStartedAt !== null) {
+    if (saving) {
+      pendingChanges = true;
+      return savePromise ?? undefined;
+    }
+
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+    const completed = sessionIsComplete(activeSession);
+    if (completed && activeSession.durationMinutes === null && sessionStartedAt !== null) {
       activeSession.durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60000));
     }
+
+    pendingChanges = false;
     saving = true;
-    const payload = { ...activeSession, completed: complete || Boolean(activeSession.completedAt) };
-    const response = await fetch('/api/sessions', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
-    });
-    saving = false;
-    if (!response.ok) {
-      showToast('Salvataggio non riuscito');
-      return;
-    }
-    if (complete) activeSession.completedAt = new Date().toISOString();
-    sessions[activeSession.date] = structuredClone(activeSession);
-    sessions = { ...sessions };
-    showToast(complete ? 'Allenamento completato!' : 'Progressi salvati');
-    if (complete) activeSession = null;
+    autoSaveStatus = 'saving';
+    const sessionBeingSaved = activeSession;
+    const payload = { ...structuredClone(sessionBeingSaved), completed };
+    let saveSucceeded = false;
+
+    savePromise = (async () => {
+      try {
+        const response = await fetch('/api/sessions', {
+          method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error('Salvataggio non riuscito');
+        const result = await response.json();
+        sessionBeingSaved.completedAt = result.completedAt ?? null;
+        sessions[sessionBeingSaved.date] = structuredClone(sessionBeingSaved);
+        sessions = { ...sessions };
+        autoSaveStatus = 'saved';
+        saveSucceeded = true;
+      } catch {
+        pendingChanges = true;
+        autoSaveStatus = 'error';
+      } finally {
+        saving = false;
+      }
+    })();
+
+    await savePromise;
+    savePromise = null;
+    if (saveSucceeded && pendingChanges && activeSession === sessionBeingSaved) await saveSession();
+  }
+
+  async function closeWorkout() {
+    if (saving && savePromise) await savePromise;
+    if (pendingChanges || autoSaveStatus === 'pending') await saveSession();
+    activeSession = null;
+    await goto('/');
   }
 
   async function updateStartDate(value: string) {
@@ -178,16 +266,23 @@
   }
 
   function weeklyStats() {
-    const result: { label: string; done: number }[] = [];
+    const result: { label: string; done: number; planned: number }[] = [];
     for (let offset = 7; offset >= 0; offset--) {
       const end = new Date(today);
       end.setDate(end.getDate() - offset * 7);
+      end.setHours(23, 59, 59, 999);
       const start = new Date(end);
       start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
       const done = Object.values(sessions).filter((s) => s.completedAt && parseLocalDate(s.date) >= start && parseLocalDate(s.date) <= end).length;
-      result.push({ label: String(end.getDate()), done });
+      const planned = plan.filter((item) => parseLocalDate(item.date) >= start && parseLocalDate(item.date) <= end && item.date <= todayKey).length;
+      result.push({ label: new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(start), done, planned });
     }
     return result;
+  }
+
+  function sessionHasData(session: Session) {
+    return Boolean(session.completedAt || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed));
   }
 </script>
 
@@ -210,7 +305,7 @@
         <div class="mt-5 h-2 overflow-hidden rounded-full bg-black/[0.06]">
           <div class="h-full rounded-full bg-moss transition-all" style={`width: ${progressPercent}%`}></div>
         </div>
-        <div class="mt-2 flex justify-between text-xs font-medium text-muted"><span>{completedCount} sedute completate</span><span>{progressPercent}%</span></div>
+        <div class="mt-2 flex justify-between text-xs font-medium text-muted"><span>{completedDueCount} su {dueWorkouts.length} sedute previste finora</span><span>{progressPercent}%</span></div>
       </section>
 
       {#if nextWorkout}
@@ -284,25 +379,35 @@
       <h1 class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">Progressi</h1>
 
       <section class="card mt-7 p-6">
-        <div class="flex items-end justify-between"><div><p class="eyebrow">Aderenza</p><p class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{progressPercent}%</p></div><p class="text-sm font-semibold text-muted">{completedCount} / {plan.filter((i) => i.date <= todayKey).length}</p></div>
-        <div class="mt-8 flex h-28 items-end gap-2">
+        <div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Sedute svolte</p><p class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{completedDueCount} <span class="text-xl text-muted">su {dueWorkouts.length}</span></p></div><p class="rounded-full bg-lime/40 px-3 py-1.5 text-sm font-bold">{progressPercent}%</p></div>
+        <p class="mt-3 text-xs leading-5 text-muted">Percentuale delle sedute programmate fino a oggi che hai completato interamente.</p>
+        <div class="mt-7 flex h-36 items-end gap-2">
           {#each weeklyStats() as week}
-            <div class="flex h-full flex-1 flex-col justify-end gap-2">
-              <div class="min-h-1 rounded-full bg-lime" style={`height: ${Math.max(5, week.done / 3 * 100)}%`} title={`${week.done} sedute`}></div>
-              <span class="text-center text-[0.6rem] text-muted">{week.label}</span>
+            <div class="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5">
+              <span class="text-center text-[0.62rem] font-bold">{week.done}/{week.planned}</span>
+              <div class="relative h-24 overflow-hidden rounded-full bg-black/[0.05]">
+                <div class="absolute bottom-0 w-full rounded-full bg-moss transition-all" style={`height: ${week.planned ? Math.max(6, week.done / week.planned * 100) : 0}%`} title={`${week.done} sedute su ${week.planned}`}></div>
+              </div>
+              <span class="truncate text-center text-[0.55rem] text-muted">{week.label}</span>
             </div>
           {/each}
         </div>
-        <p class="mt-3 text-xs text-muted">Sedute completate nelle ultime 8 settimane</p>
+        <p class="mt-3 text-xs text-muted">Completate / programmate nelle ultime 8 settimane</p>
+      </section>
+
+      <section class="mt-3 grid grid-cols-3 gap-2">
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCompletedSets}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">serie completate</p></div>
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalTrainingMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">minuti totali</p></div>
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCardioMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">minuti cardio</p></div>
       </section>
 
       <section class="mt-7">
         <div class="flex items-center justify-between"><h2 class="text-xl font-bold tracking-[-0.03em]">Ultime sedute</h2><RotateCcw size={18} class="text-muted" /></div>
         <div class="mt-3 space-y-3">
-          {#each Object.values(sessions).filter((s) => s.completedAt).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8) as session}
+          {#each Object.values(sessions).filter(sessionHasData).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8) as session}
             <button class="card flex w-full items-center gap-4 p-4 text-left" onclick={() => openWorkout(session.date, session.type)}>
-              <span class="grid h-11 w-11 place-items-center rounded-2xl bg-moss font-bold text-white">{session.type}</span>
-              <span class="flex-1"><span class="block capitalize font-bold">{formatDate(session.date)}</span><span class="text-xs text-muted">{Object.values(session.logs).flat().filter((s) => s.completed).length} serie · {session.cardioMinutes ?? 0} min cardio</span></span>
+              <span class="grid h-11 w-11 place-items-center rounded-2xl {session.completedAt ? 'bg-moss text-white' : 'bg-lime/40 text-ink'} font-bold">{session.type}</span>
+              <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(session.date)}</span><span class="mt-0.5 block truncate text-xs text-muted">{Object.values(session.logs).flat().filter((s) => s.completed).length} serie completate{session.durationMinutes ? ` · ${session.durationMinutes} min totali` : ''}{session.cardioMinutes ? ` · ${session.cardioMinutes} min cardio` : ''}</span><span class="mt-1 block text-[0.62rem] font-bold uppercase tracking-wider {session.completedAt ? 'text-moss' : 'text-muted'}">{session.completedAt ? 'Completata' : 'In corso'}</span></span>
               <ChevronRight size={18} class="text-muted" />
             </button>
           {:else}
@@ -322,11 +427,13 @@
 
 {#if activeSession}
   <div class="fixed inset-0 z-40 overflow-y-auto bg-cream">
-    <div class="mx-auto min-h-screen max-w-lg pb-36">
+    <div class="mx-auto min-h-screen max-w-lg pb-12">
       <header class="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.05] bg-cream/95 px-5 py-4 backdrop-blur">
-        <button class="icon-button" onclick={() => activeSession = null} aria-label="Chiudi"><ChevronLeft size={21} /></button>
+        <button class="icon-button" onclick={closeWorkout} aria-label="Chiudi"><ChevronLeft size={21} /></button>
         <div class="text-center"><p class="eyebrow">Seduta {activeSession.type}</p><p class="text-sm font-bold capitalize">{formatDate(activeSession.date)}</p></div>
-        <button class="text-sm font-bold text-moss disabled:opacity-50" disabled={saving} onclick={() => saveSession(false)}>{saving ? 'Salvo…' : 'Salva'}</button>
+        <div class="w-16 text-right text-xs font-bold {autoSaveStatus === 'error' ? 'text-amber-700' : 'text-moss'}" aria-live="polite">
+          {#if autoSaveStatus === 'saving'}Salvo…{:else if autoSaveStatus === 'pending'}Da salvare{:else if autoSaveStatus === 'error'}<button onclick={() => saveSession()}>Riprova</button>{:else if autoSaveStatus === 'saved'}<span class="inline-flex items-center gap-1"><Check size={13} /> Salvato</span>{:else}<span class="text-muted">Auto</span>{/if}
+        </div>
       </header>
 
       <main class="px-5 pt-6">
@@ -387,7 +494,7 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" onclick={() => set.completed = !set.completed} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
                       {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>
@@ -399,20 +506,22 @@
           {/each}
         </div>
 
+        {#if sessionIsComplete(activeSession)}
+          <section class="mt-4 rounded-[1.75rem] bg-moss p-5 text-white" aria-live="polite">
+            <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta completata</h2><p class="mt-1 text-xs text-white/75">Tutte le attività sono concluse. Il risultato viene salvato automaticamente.</p></div></div>
+          </section>
+        {/if}
+
         <section class="card mt-4 p-5">
           <h2 class="font-bold">Chiusura seduta</h2>
           <p class="mt-1 text-xs leading-5 text-muted">Tutto facoltativo. Il tempo totale viene calcolato automaticamente se lo lasci vuoto. {workouts[activeSession.type].cardio}</p>
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" bind:value={activeSession.durationMinutes} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" bind:value={activeSession.cardioMinutes} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" bind:value={activeSession.durationMinutes} oninput={() => queueAutoSave()} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" bind:value={activeSession.cardioMinutes} oninput={() => queueAutoSave()} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
           </div>
-          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" bind:value={activeSession.notes}></textarea>
+          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" bind:value={activeSession.notes} oninput={() => queueAutoSave()}></textarea>
         </section>
       </main>
-
-      <div class="fixed bottom-0 left-0 right-0 z-20 border-t border-black/[0.05] bg-cream/95 p-4 backdrop-blur">
-        <button class="mx-auto flex w-full max-w-[30rem] items-center justify-center gap-2 rounded-2xl bg-ink py-4 font-bold text-white shadow-card disabled:opacity-50" disabled={saving} onclick={() => saveSession(true)}><Check size={19} /> Completa allenamento</button>
-      </div>
     </div>
   </div>
 {/if}
