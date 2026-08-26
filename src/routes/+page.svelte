@@ -171,14 +171,6 @@
     queueAutoSave();
   }
 
-  function toggleAll(exerciseId: string) {
-    if (!activeSession) return;
-    const sets = activeSession.logs[exerciseId];
-    const complete = !sets.every((set) => set.completed);
-    for (const set of sets) set.completed = complete;
-    queueAutoSave(0);
-  }
-
   function toggleSet(set: SetLog) {
     set.completed = !set.completed;
     queueAutoSave(0);
@@ -431,9 +423,7 @@
       <header class="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.05] bg-cream/95 px-5 py-4 backdrop-blur">
         <button class="icon-button" onclick={closeWorkout} aria-label="Chiudi"><ChevronLeft size={21} /></button>
         <div class="text-center"><p class="eyebrow">Seduta {activeSession.type}</p><p class="text-sm font-bold capitalize">{formatDate(activeSession.date)}</p></div>
-        <div class="w-16 text-right text-xs font-bold {autoSaveStatus === 'error' ? 'text-amber-700' : 'text-moss'}" aria-live="polite">
-          {#if autoSaveStatus === 'saving'}Salvo…{:else if autoSaveStatus === 'pending'}Da salvare{:else if autoSaveStatus === 'error'}<button onclick={() => saveSession()}>Riprova</button>{:else if autoSaveStatus === 'saved'}<span class="inline-flex items-center gap-1"><Check size={13} /> Salvato</span>{:else}<span class="text-muted">Auto</span>{/if}
-        </div>
+        <span class="w-11" aria-hidden="true"></span>
       </header>
 
       <main class="px-5 pt-6">
@@ -500,7 +490,6 @@
                     </button>
                   {/each}
                 </div>
-                <button class="mt-2 w-full rounded-xl py-2 text-xs font-bold text-moss" onclick={() => toggleAll(exercise.id)}>{exerciseLogs.every((set) => set.completed) ? 'Deseleziona tutte' : 'Segna tutte come completate'}</button>
               </div>
             </section>
           {/each}
@@ -508,7 +497,7 @@
 
         {#if sessionIsComplete(activeSession)}
           <section class="mt-4 rounded-[1.75rem] bg-moss p-5 text-white" aria-live="polite">
-            <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta completata</h2><p class="mt-1 text-xs text-white/75">Tutte le attività sono concluse. Il risultato viene salvato automaticamente.</p></div></div>
+            <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta completata</h2><p class="mt-1 text-xs text-white/75">Hai concluso tutte le attività previste.</p></div></div>
           </section>
         {/if}
 
