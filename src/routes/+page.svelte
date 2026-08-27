@@ -43,6 +43,7 @@
   let activeSession = $state<Session | null>(null);
   let saving = $state(false);
   let sessionStartedAt = $state<number | null>(null);
+  let elapsedSeconds = $state(0);
   let autoSaveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,12 +85,20 @@
       void fetch('/api/sessions', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...structuredClone(activeSession), completed }),
+        body: JSON.stringify({ ...cloneSession(activeSession), completed }),
         keepalive: true
       });
     };
     window.addEventListener('beforeunload', persistBeforeRefresh);
     return () => window.removeEventListener('beforeunload', persistBeforeRefresh);
+  });
+
+  $effect(() => {
+    if (!activeSession || sessionStartedAt === null || sessionIsComplete(activeSession)) return;
+    const updateElapsed = () => { elapsedSeconds = Math.max(0, Math.floor((Date.now() - sessionStartedAt!) / 1000)); };
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
   });
 
   function localKey(date: Date) {
@@ -107,12 +116,46 @@
     return `getfit-session-draft:${date}`;
   }
 
+  function startKey(date: string) {
+    return `getfit-session-start:${date}`;
+  }
+
+  function readSessionStart(date: string) {
+    try {
+      const value = Number(localStorage.getItem(startKey(date)));
+      return Number.isFinite(value) && value > 0 ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearSessionStart(date: string) {
+    try {
+      localStorage.removeItem(startKey(date));
+    } catch {
+      // Nessuna azione necessaria.
+    }
+  }
+
+  function formatElapsed(seconds: number) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+      : `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+  }
+
   function persistDraft(session: Session) {
     try {
       localStorage.setItem(draftKey(session.date), JSON.stringify(session));
     } catch {
       // Il salvataggio sul server continua anche se lo storage locale non è disponibile.
     }
+  }
+
+  function cloneSession(session: Session): Session {
+    return JSON.parse(JSON.stringify(session)) as Session;
   }
 
   function readDraft(date: string, type: WorkoutType) {
@@ -189,9 +232,21 @@
       ...draft,
       logs: { ...serverSession.logs, ...draft.logs }
     } : serverSession;
-    sessionStartedAt = existing?.completedAt ? null : Date.now();
+    sessionStartedAt = existing?.completedAt ? null : readSessionStart(date);
+    elapsedSeconds = sessionStartedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000));
     autoSaveStatus = draft ? 'pending' : 'idle';
     if (draft) queueAutoSave(0);
+  }
+
+  function startWorkout() {
+    if (!activeSession || sessionStartedAt !== null) return;
+    sessionStartedAt = Date.now();
+    elapsedSeconds = 0;
+    try {
+      localStorage.setItem(startKey(activeSession.date), String(sessionStartedAt));
+    } catch {
+      // Il timer continua anche se lo storage locale non è disponibile.
+    }
   }
 
   function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
@@ -240,7 +295,7 @@
     autoSaveStatus = 'pending';
     if (!sessionIsComplete(activeSession)) activeSession.completedAt = null;
     persistDraft(activeSession);
-    sessions[activeSession.date] = structuredClone(activeSession);
+    sessions[activeSession.date] = cloneSession(activeSession);
     sessions = { ...sessions };
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     if (retryTimer) clearTimeout(retryTimer);
@@ -263,7 +318,7 @@
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = null;
     const completed = sessionIsComplete(activeSession);
-    if (completed && activeSession.durationMinutes === null && sessionStartedAt !== null) {
+    if (completed && sessionStartedAt !== null) {
       activeSession.durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60000));
       persistDraft(activeSession);
     }
@@ -272,7 +327,7 @@
     saving = true;
     autoSaveStatus = 'saving';
     const sessionBeingSaved = activeSession;
-    const payload = { ...structuredClone(sessionBeingSaved), completed };
+    const payload = { ...cloneSession(sessionBeingSaved), completed };
     let saveSucceeded = false;
 
     savePromise = (async () => {
@@ -283,9 +338,13 @@
         if (!response.ok) throw new Error('Salvataggio non riuscito');
         const result = await response.json();
         sessionBeingSaved.completedAt = result.completedAt ?? null;
-        sessions[sessionBeingSaved.date] = structuredClone(sessionBeingSaved);
+        sessions[sessionBeingSaved.date] = cloneSession(sessionBeingSaved);
         sessions = { ...sessions };
         if (!pendingChanges) clearDraft(sessionBeingSaved.date);
+        if (result.completedAt && sessionIsComplete(sessionBeingSaved)) {
+          clearSessionStart(sessionBeingSaved.date);
+          sessionStartedAt = null;
+        }
         autoSaveStatus = 'saved';
         retryAttempts = 0;
         saveSucceeded = true;
@@ -507,6 +566,17 @@
       <main class="px-5 pt-6">
         <h1 class="text-4xl font-extrabold tracking-[-0.06em]">{workouts[activeSession.type].title}</h1>
         <p class="mt-2 text-sm text-muted">{workouts[activeSession.type].focus}</p>
+
+        {#if !activeSession.completedAt && !sessionIsComplete(activeSession)}
+          {#if sessionStartedAt === null}
+            <button class="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink py-4 font-bold text-white shadow-card transition active:scale-[0.99]" onclick={startWorkout}><Play size={18} fill="currentColor" /> Inizia allenamento</button>
+          {:else}
+            <section class="card mt-6 flex items-center justify-between px-5 py-4">
+              <div><p class="eyebrow">Tempo allenamento</p><p class="mt-1 text-xs text-muted">Il contatore si fermerà al completamento.</p></div>
+              <p class="font-mono text-2xl font-extrabold tracking-[-0.04em] tabular-nums">{formatElapsed(elapsedSeconds)}</p>
+            </section>
+          {/if}
+        {/if}
 
         <div class="mt-7 space-y-4">
           {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
