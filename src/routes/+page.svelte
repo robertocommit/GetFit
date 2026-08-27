@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleHelp, Dumbbell, Flame, Home, Lightbulb, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, Home, Lightbulb, LoaderCircle, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { Exercise, Session, SetLog, WorkoutType } from '$lib/types';
@@ -45,6 +45,8 @@
   let sessionStartedAt = $state<number | null>(null);
   let autoSaveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempts = 0;
   let pendingChanges = false;
   let savePromise: Promise<void> | null = null;
   let initialWorkoutOpened = false;
@@ -77,6 +79,7 @@
   $effect(() => {
     const persistBeforeRefresh = () => {
       if (!activeSession || (!pendingChanges && !saving)) return;
+      persistDraft(activeSession);
       const completed = sessionIsComplete(activeSession);
       void fetch('/api/sessions', {
         method: 'PUT',
@@ -98,6 +101,37 @@
       ? { weekday: 'long', day: 'numeric', month: 'long' }
       : { weekday: 'short', day: 'numeric', month: 'short' }
     ).format(parseLocalDate(value));
+  }
+
+  function draftKey(date: string) {
+    return `getfit-session-draft:${date}`;
+  }
+
+  function persistDraft(session: Session) {
+    try {
+      localStorage.setItem(draftKey(session.date), JSON.stringify(session));
+    } catch {
+      // Il salvataggio sul server continua anche se lo storage locale non è disponibile.
+    }
+  }
+
+  function readDraft(date: string, type: WorkoutType) {
+    try {
+      const raw = localStorage.getItem(draftKey(date));
+      if (!raw) return null;
+      const draft = JSON.parse(raw) as Session;
+      return draft.date === date && draft.type === type && draft.logs ? draft : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearDraft(date: string) {
+    try {
+      localStorage.removeItem(draftKey(date));
+    } catch {
+      // Nessuna azione necessaria.
+    }
   }
 
   function latestLogs(exerciseId: string, beforeDate: string) {
@@ -142,15 +176,22 @@
         completed: false
       });
     }
-    activeSession = {
+    const serverSession: Session = {
       date, type, logs,
       completedAt: existing?.completedAt ?? null,
       durationMinutes: existing?.durationMinutes ?? null,
       cardioMinutes: existing?.cardioMinutes ?? null,
       notes: existing?.notes ?? ''
     };
+    const draft = readDraft(date, type);
+    activeSession = draft ? {
+      ...serverSession,
+      ...draft,
+      logs: { ...serverSession.logs, ...draft.logs }
+    } : serverSession;
     sessionStartedAt = existing?.completedAt ? null : Date.now();
-    autoSaveStatus = 'idle';
+    autoSaveStatus = draft ? 'pending' : 'idle';
+    if (draft) queueAutoSave(0);
   }
 
   function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
@@ -171,6 +212,19 @@
     queueAutoSave();
   }
 
+  function updateSessionNumber(field: 'durationMinutes' | 'cardioMinutes', event: Event) {
+    if (!activeSession) return;
+    const raw = (event.currentTarget as HTMLInputElement).value;
+    activeSession[field] = raw === '' ? null : Number(raw);
+    queueAutoSave();
+  }
+
+  function updateSessionNotes(event: Event) {
+    if (!activeSession) return;
+    activeSession.notes = (event.currentTarget as HTMLTextAreaElement).value;
+    queueAutoSave();
+  }
+
   function toggleSet(set: SetLog) {
     set.completed = !set.completed;
     queueAutoSave(0);
@@ -181,9 +235,15 @@
   }
 
   function queueAutoSave(delay = 550) {
+    if (!activeSession) return;
     pendingChanges = true;
     autoSaveStatus = 'pending';
+    if (!sessionIsComplete(activeSession)) activeSession.completedAt = null;
+    persistDraft(activeSession);
+    sessions[activeSession.date] = structuredClone(activeSession);
+    sessions = { ...sessions };
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    if (retryTimer) clearTimeout(retryTimer);
     autoSaveTimer = setTimeout(() => { void saveSession(); }, delay);
   }
 
@@ -200,9 +260,12 @@
 
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = null;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
     const completed = sessionIsComplete(activeSession);
     if (completed && activeSession.durationMinutes === null && sessionStartedAt !== null) {
       activeSession.durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60000));
+      persistDraft(activeSession);
     }
 
     pendingChanges = false;
@@ -222,11 +285,18 @@
         sessionBeingSaved.completedAt = result.completedAt ?? null;
         sessions[sessionBeingSaved.date] = structuredClone(sessionBeingSaved);
         sessions = { ...sessions };
+        if (!pendingChanges) clearDraft(sessionBeingSaved.date);
         autoSaveStatus = 'saved';
+        retryAttempts = 0;
         saveSucceeded = true;
       } catch {
         pendingChanges = true;
         autoSaveStatus = 'error';
+        retryAttempts += 1;
+        const retryDelay = Math.min(30000, 2000 * 2 ** Math.min(retryAttempts - 1, 4));
+        retryTimer = setTimeout(() => {
+          if (activeSession === sessionBeingSaved && pendingChanges) void saveSession();
+        }, retryDelay);
       } finally {
         saving = false;
       }
@@ -423,7 +493,15 @@
       <header class="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.05] bg-cream/95 px-5 py-4 backdrop-blur">
         <button class="icon-button" onclick={closeWorkout} aria-label="Chiudi"><ChevronLeft size={21} /></button>
         <div class="text-center"><p class="eyebrow">Seduta {activeSession.type}</p><p class="text-sm font-bold capitalize">{formatDate(activeSession.date)}</p></div>
-        <span class="w-11" aria-hidden="true"></span>
+        <div class="grid h-11 w-11 place-items-center" aria-live="polite">
+          {#if autoSaveStatus === 'pending' || autoSaveStatus === 'saving'}
+            <LoaderCircle class="animate-spin text-muted/60" size={18} aria-label="Salvataggio in corso" />
+          {:else if autoSaveStatus === 'saved'}
+            <CircleCheck class="text-moss/70" size={19} aria-label="Progressi salvati" />
+          {:else if autoSaveStatus === 'error'}
+            <button class="grid h-9 w-9 place-items-center rounded-full text-amber-700" onclick={() => saveSession()} aria-label="Salvataggio non riuscito, riprova" title="Salvataggio non riuscito. Tocca per riprovare."><CircleAlert size={19} /></button>
+          {/if}
+        </div>
       </header>
 
       <main class="px-5 pt-6">
@@ -505,10 +583,10 @@
           <h2 class="font-bold">Chiusura seduta</h2>
           <p class="mt-1 text-xs leading-5 text-muted">Tutto facoltativo. Il tempo totale viene calcolato automaticamente se lo lasci vuoto. {workouts[activeSession.type].cardio}</p>
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" bind:value={activeSession.durationMinutes} oninput={() => queueAutoSave()} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" bind:value={activeSession.cardioMinutes} oninput={() => queueAutoSave()} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" value={activeSession.durationMinutes ?? ''} oninput={(event) => updateSessionNumber('durationMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" value={activeSession.cardioMinutes ?? ''} oninput={(event) => updateSessionNumber('cardioMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
           </div>
-          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" bind:value={activeSession.notes} oninput={() => queueAutoSave()}></textarea>
+          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" value={activeSession.notes} oninput={updateSessionNotes}></textarea>
         </section>
       </main>
     </div>
