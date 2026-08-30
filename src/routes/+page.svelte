@@ -322,21 +322,29 @@
     }
   }
 
-  function latestLogs(exerciseId: string, beforeDate: string) {
+  function latestLogs(exerciseId: string, beforeDate: string, type?: WorkoutType) {
     return Object.values(sessions)
-      .filter((session) => session.date < beforeDate && session.completedAt && session.logs[exerciseId]?.length)
+      .filter((session) => session.date < beforeDate && session.completedAt && (!type || session.type === type) && session.logs[exerciseId]?.length)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.logs[exerciseId];
   }
 
   function suggestedWeight(type: WorkoutType, exerciseId: string, date: string) {
     const exercise = workouts[type].exercises.find((item) => item.id === exerciseId)!;
-    const previous = latestLogs(exerciseId, date);
+    const previous = latestLogs(exerciseId, date, type);
     if (!previous?.length) return exercise.startWeight;
     const weights = previous.map((set) => set.weight).filter((weight): weight is number => weight !== null);
     if (!weights.length) return exercise.startWeight;
-    const weight = weights.at(-1)!;
-    const reachedTop = exercise.maxReps && previous.length >= exercise.sets && previous.slice(0, exercise.sets).every((set) => set.completed && (set.reps ?? 0) >= exercise.maxReps!);
-    return reachedTop && exercise.increment ? weight + exercise.increment : weight;
+    return weights.at(-1)!;
+  }
+
+  function suggestedReps(exercise: Exercise, previous: SetLog[], index: number) {
+    const fallback = exercise.minReps ?? null;
+    const current = previous[index]?.reps ?? previous[0]?.reps ?? fallback;
+    if (current === null) return null;
+    const previousExerciseComplete = previous.length >= exercise.sets
+      && previous.slice(0, exercise.sets).every((set) => set.completed);
+    if (!previousExerciseComplete) return current;
+    return Math.min(current + 1, exercise.maxReps ?? current + 1);
   }
 
   function openWorkout(date: string, type: WorkoutType, updateUrl = true) {
@@ -348,7 +356,7 @@
     const logs: Record<string, SetLog[]> = {};
     for (const exercise of workouts[type].exercises) {
       const saved = existing?.logs[exercise.id] ?? [];
-      const previous = latestLogs(exercise.id, date) ?? [];
+      const previous = latestLogs(exercise.id, date, type) ?? [];
       const weight = suggestedWeight(type, exercise.id, date);
       const mode = exercise.tracking ?? 'strength';
       const defaultReps = mode === 'strength'
@@ -358,8 +366,8 @@
           : mode === 'carry' ? 1 : null;
       logs[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => saved[index] ? { ...saved[index] } : {
         setNumber: index + 1,
-        reps: previous[index]?.reps ?? previous[0]?.reps ?? defaultReps,
-        weight: mode === 'timed' || mode === 'mobility' ? null : (previous[index]?.weight ?? previous[0]?.weight ?? weight),
+        reps: mode === 'strength' ? suggestedReps(exercise, previous, index) : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
+        weight: mode === 'timed' || mode === 'mobility' ? null : weight,
         rir: null,
         completed: false
       });
@@ -410,6 +418,13 @@
   function inputForAll(exerciseId: string, field: 'reps' | 'weight', event: Event) {
     const raw = (event.currentTarget as HTMLInputElement).value;
     applyToAll(exerciseId, field, raw === '' ? null : Number(raw));
+    queueAutoSave();
+  }
+
+  function updateSetRir(set: SetLog, event: Event) {
+    if (!activeSession || activeSession.completedAt) return;
+    const raw = (event.currentTarget as HTMLInputElement).value;
+    set.rir = raw === '' ? null : Math.max(0, Math.min(10, Number(raw)));
     queueAutoSave();
   }
 
@@ -627,6 +642,14 @@
     const minimum = Math.min(...values);
     const maximum = Math.max(...values);
     return `${minimum === maximum ? minimum : `${minimum}–${maximum}`} ${unit}`;
+  }
+
+  function historyRir(logs: SetLog[]) {
+    const values = logs.map((set) => set.rir).filter((value): value is number => value !== null);
+    if (!values.length) return 'RIR —';
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    return `RIR ${minimum === maximum ? minimum : `${minimum}–${maximum}`}`;
   }
 
   function sessionHasData(session: Session) {
@@ -899,6 +922,7 @@
                       </div>
                     </div>
                   </div>
+                  <p class="mt-3 rounded-2xl bg-lime/25 px-3 py-2 text-center text-[0.68rem] leading-4 text-muted"><strong class="text-ink">RIR</strong> = quante ripetizioni pulite sentivi di avere ancora. Inseriscilo dopo ogni serie.</p>
                 {:else if exerciseMode === 'timed'}
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
@@ -919,10 +943,18 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
-                      <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
-                      {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
-                    </button>
+                    <div class="rounded-2xl p-2 transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}">
+                      <button class="flex min-h-9 w-full items-center justify-center gap-2 rounded-xl px-1 font-bold disabled:cursor-default" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                        <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
+                        {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
+                      </button>
+                      {#if exerciseMode === 'strength'}
+                        <label class="mt-1 flex items-center justify-center gap-2 border-t pt-2 text-[0.65rem] font-bold uppercase tracking-wider {set.completed ? 'border-white/15 text-white/75' : 'border-black/[0.06] text-muted'}">
+                          <span>RIR</span>
+                          <input class="h-8 w-12 rounded-xl bg-white text-center text-sm font-extrabold text-ink outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" min="0" max="10" inputmode="numeric" placeholder="—" value={set.rir ?? ''} oninput={(event) => updateSetRir(set, event)} aria-label={`RIR serie ${set.setNumber}`} />
+                        </label>
+                      {/if}
+                    </div>
                   {/each}
                 </div>
               </div>
@@ -1016,7 +1048,7 @@
                   <td class="border-b border-black/[0.05] py-3 pr-3"><span class="block text-xs font-semibold capitalize">{formatDate(session.date)}</span><span class="mt-0.5 block text-[0.58rem] font-bold uppercase tracking-wider text-muted">Seduta {session.type}</span></td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-center font-semibold tabular-nums">{logs.filter((set) => set.completed).length}</td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-right font-semibold tabular-nums">{historyReps(logs)}</td>
-                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums">{historyWeight(logs, historyExercise.exercise.unit)}</td>
+                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums"><span class="block">{historyWeight(logs, historyExercise.exercise.unit)}</span>{#if historyMode === 'strength'}<span class="mt-0.5 block text-[0.6rem] font-bold uppercase tracking-wider text-muted">{historyRir(logs)}</span>{/if}</td>
                 </tr>
               {/each}
             </tbody>
