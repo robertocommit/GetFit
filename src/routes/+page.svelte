@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, Home, Lightbulb, LoaderCircle, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { Exercise, Session, SetLog, WorkoutType } from '$lib/types';
@@ -42,6 +42,7 @@
   let startDate = $state(initialStartDate());
   let activeSession = $state<Session | null>(null);
   let saving = $state(false);
+  let finishing = $state(false);
   let sessionStartedAt = $state<number | null>(null);
   let elapsedSeconds = $state(0);
   let autoSaveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
@@ -54,6 +55,7 @@
   let toast = $state('');
   let infoOpen = $state(false);
   let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
+  let historyExercise = $state<{ exercise: Exercise; beforeDate: string } | null>(null);
   let sessions = $state<Record<string, Session>>(initialSessions());
 
   const today = new Date();
@@ -79,13 +81,12 @@
 
   $effect(() => {
     const persistBeforeRefresh = () => {
-      if (!activeSession || (!pendingChanges && !saving)) return;
+      if (!activeSession || activeSession.completedAt || (!pendingChanges && !saving)) return;
       persistDraft(activeSession);
-      const completed = sessionIsComplete(activeSession);
       void fetch('/api/sessions', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...cloneSession(activeSession), completed }),
+        body: JSON.stringify({ ...cloneSession(activeSession), completed: false }),
         keepalive: true
       });
     };
@@ -226,7 +227,8 @@
       cardioMinutes: existing?.cardioMinutes ?? null,
       notes: existing?.notes ?? ''
     };
-    const draft = readDraft(date, type);
+    if (existing?.completedAt) clearDraft(date);
+    const draft = existing?.completedAt ? null : readDraft(date, type);
     activeSession = draft ? {
       ...serverSession,
       ...draft,
@@ -250,12 +252,12 @@
   }
 
   function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.completedAt) return;
     for (const set of activeSession.logs[exerciseId]) set[field] = value;
   }
 
   function adjustAll(exerciseId: string, field: 'reps' | 'weight', amount: number) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.completedAt) return;
     const current = activeSession.logs[exerciseId][0]?.[field] ?? 0;
     applyToAll(exerciseId, field, Math.max(0, Math.round((current + amount) * 100) / 100));
     queueAutoSave();
@@ -268,19 +270,20 @@
   }
 
   function updateSessionNumber(field: 'durationMinutes' | 'cardioMinutes', event: Event) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.completedAt) return;
     const raw = (event.currentTarget as HTMLInputElement).value;
     activeSession[field] = raw === '' ? null : Number(raw);
     queueAutoSave();
   }
 
   function updateSessionNotes(event: Event) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.completedAt) return;
     activeSession.notes = (event.currentTarget as HTMLTextAreaElement).value;
     queueAutoSave();
   }
 
   function toggleSet(set: SetLog) {
+    if (!activeSession || activeSession.completedAt) return;
     set.completed = !set.completed;
     queueAutoSave(0);
   }
@@ -290,7 +293,7 @@
   }
 
   function queueAutoSave(delay = 550) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.completedAt) return;
     pendingChanges = true;
     autoSaveStatus = 'pending';
     if (!sessionIsComplete(activeSession)) activeSession.completedAt = null;
@@ -306,8 +309,8 @@
     return workouts[session.type].exercises.every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed));
   }
 
-  async function saveSession() {
-    if (!activeSession) return;
+  async function saveSession(completeSession = false) {
+    if (!activeSession || activeSession.completedAt) return;
     if (saving) {
       pendingChanges = true;
       return savePromise ?? undefined;
@@ -317,9 +320,9 @@
     autoSaveTimer = null;
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = null;
-    const completed = sessionIsComplete(activeSession);
-    if (completed && sessionStartedAt !== null) {
-      activeSession.durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60000));
+    const completed = completeSession && sessionIsComplete(activeSession);
+    if (completed && sessionStartedAt !== null && activeSession.durationMinutes === null) {
+      activeSession.durationMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
       persistDraft(activeSession);
     }
 
@@ -354,7 +357,7 @@
         retryAttempts += 1;
         const retryDelay = Math.min(30000, 2000 * 2 ** Math.min(retryAttempts - 1, 4));
         retryTimer = setTimeout(() => {
-          if (activeSession === sessionBeingSaved && pendingChanges) void saveSession();
+          if (activeSession === sessionBeingSaved && pendingChanges) void saveSession(completeSession);
         }, retryDelay);
       } finally {
         saving = false;
@@ -363,7 +366,15 @@
 
     await savePromise;
     savePromise = null;
-    if (saveSucceeded && pendingChanges && activeSession === sessionBeingSaved) await saveSession();
+    if (saveSucceeded && pendingChanges && activeSession === sessionBeingSaved) await saveSession(completeSession);
+  }
+
+  async function finishWorkout() {
+    if (!activeSession || activeSession.completedAt || !sessionIsComplete(activeSession) || finishing) return;
+    finishing = true;
+    if (saving && savePromise) await savePromise;
+    await saveSession(true);
+    finishing = false;
   }
 
   async function closeWorkout() {
@@ -388,18 +399,34 @@
 
   function weeklyStats() {
     const result: { label: string; done: number; planned: number }[] = [];
-    for (let offset = 7; offset >= 0; offset--) {
-      const end = new Date(today);
-      end.setDate(end.getDate() - offset * 7);
+    const programStart = parseLocalDate(startDate);
+    programStart.setHours(0, 0, 0, 0);
+    if (programStart > today) return result;
+
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
+    currentWeekStart.setHours(0, 0, 0, 0);
+    const eightWeekWindow = new Date(currentWeekStart);
+    eightWeekWindow.setDate(eightWeekWindow.getDate() - 7 * 7);
+    let start = new Date(programStart > eightWeekWindow ? programStart : eightWeekWindow);
+
+    while (start <= today) {
+      const end = new Date(start);
+      end.setDate(end.getDate() + (6 - ((end.getDay() + 6) % 7)));
       end.setHours(23, 59, 59, 999);
-      const start = new Date(end);
-      start.setDate(start.getDate() - 6);
-      start.setHours(0, 0, 0, 0);
       const done = Object.values(sessions).filter((s) => s.completedAt && parseLocalDate(s.date) >= start && parseLocalDate(s.date) <= end).length;
       const planned = plan.filter((item) => parseLocalDate(item.date) >= start && parseLocalDate(item.date) <= end && item.date <= todayKey).length;
       result.push({ label: new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(start), done, planned });
+      start = new Date(end);
+      start.setMilliseconds(start.getMilliseconds() + 1);
     }
     return result;
+  }
+
+  function exerciseHistory(exerciseId: string, beforeDate: string) {
+    return Object.values(sessions)
+      .filter((session) => session.completedAt && session.date < beforeDate && session.logs[exerciseId]?.length)
+      .sort((a, b) => b.date.localeCompare(a.date));
   }
 
   function sessionHasData(session: Session) {
@@ -486,7 +513,7 @@
           {/if}
           <button class="card flex w-full items-center gap-4 p-4 text-left transition active:scale-[0.99] {past && !complete ? 'opacity-55' : ''}" onclick={() => openWorkout(item.date, item.type)}>
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl {complete ? 'bg-moss text-white' : 'bg-cream'}">
-              {#if complete}<Check size={20} />{:else}<span class="font-extrabold">{item.type}</span>{/if}
+              {#if complete}<LockKeyhole size={19} />{:else}<span class="font-extrabold">{item.type}</span>{/if}
             </span>
             <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(item.date, true)}</span><span class="mt-0.5 block truncate text-xs text-muted">{workouts[item.type].focus}</span></span>
             <ChevronRight size={19} class="text-muted" />
@@ -513,7 +540,7 @@
             </div>
           {/each}
         </div>
-        <p class="mt-3 text-xs text-muted">Completate / programmate nelle ultime 8 settimane</p>
+        <p class="mt-3 text-xs text-muted">Completate / programmate dalla data di partenza, fino a un massimo di 8 settimane</p>
       </section>
 
       <section class="mt-3 grid grid-cols-3 gap-2">
@@ -567,6 +594,13 @@
         <h1 class="text-4xl font-extrabold tracking-[-0.06em]">{workouts[activeSession.type].title}</h1>
         <p class="mt-2 text-sm text-muted">{workouts[activeSession.type].focus}</p>
 
+        {#if activeSession.completedAt}
+          <section class="mt-6 flex items-center gap-3 rounded-[1.75rem] bg-ink p-5 text-white">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-lime"><LockKeyhole size={19} /></span>
+            <div><h2 class="font-bold">Allenamento concluso e bloccato</h2><p class="mt-1 text-xs leading-5 text-white/65">Puoi consultare tutti i dati, ma non modificarli per sbaglio.</p></div>
+          </section>
+        {/if}
+
         {#if !activeSession.completedAt && !sessionIsComplete(activeSession)}
           {#if sessionStartedAt === null}
             <button class="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink py-4 font-bold text-white shadow-card transition active:scale-[0.99]" onclick={startWorkout}><Play size={18} fill="currentColor" /> Inizia allenamento</button>
@@ -586,6 +620,7 @@
               <div class="flex items-start justify-between gap-3 p-5 pb-3">
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
                 <div class="flex shrink-0 items-center gap-2">
+                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
                   <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
                 </div>
@@ -598,17 +633,17 @@
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Peso · {exercise.unit}</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Ripetizioni</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                   </div>
@@ -616,15 +651,15 @@
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
                     <div class="mx-auto mt-1 flex max-w-48 items-center gap-1">
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
-                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none" type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white" onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
+                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
                     </div>
                   </div>
                 {:else if exerciseMode === 'carry'}
                   <label class="block rounded-2xl bg-cream p-3">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Carico facoltativo · {exercise.unit}</span>
-                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none" type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
+                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
                   </label>
                 {:else}
                   <p class="rounded-2xl bg-cream p-3 text-center text-sm text-muted">Nessun peso o numero di ripetizioni da inserire.</p>
@@ -632,7 +667,7 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
                       {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>
@@ -643,9 +678,9 @@
           {/each}
         </div>
 
-        {#if sessionIsComplete(activeSession)}
+        {#if sessionIsComplete(activeSession) && !activeSession.completedAt}
           <section class="mt-4 rounded-[1.75rem] bg-moss p-5 text-white" aria-live="polite">
-            <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta completata</h2><p class="mt-1 text-xs text-white/75">Hai concluso tutte le attività previste.</p></div></div>
+            <div class="flex items-center gap-3"><span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Tutte le attività sono complete</h2><p class="mt-1 text-xs leading-5 text-white/75">Aggiungi qui sotto eventuali tempi e note, poi chiudi la seduta.</p></div></div>
           </section>
         {/if}
 
@@ -653,12 +688,55 @@
           <h2 class="font-bold">Chiusura seduta</h2>
           <p class="mt-1 text-xs leading-5 text-muted">Tutto facoltativo. Il tempo totale viene calcolato automaticamente se lo lasci vuoto. {workouts[activeSession.type].cardio}</p>
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="Auto" value={activeSession.durationMinutes ?? ''} oninput={(event) => updateSessionNumber('durationMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none" type="number" placeholder="—" value={activeSession.cardioMinutes ?? ''} oninput={(event) => updateSessionNumber('cardioMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="Auto" value={activeSession.durationMinutes ?? ''} oninput={(event) => updateSessionNumber('durationMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="—" value={activeSession.cardioMinutes ?? ''} oninput={(event) => updateSessionNumber('cardioMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
           </div>
-          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Note sulla tecnica…" value={activeSession.notes} oninput={updateSessionNotes}></textarea>
+          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60 disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} placeholder="Come ti sei sentito? Note sulla tecnica…" value={activeSession.notes} oninput={updateSessionNotes}></textarea>
+          {#if sessionIsComplete(activeSession) && !activeSession.completedAt}
+            <button class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3.5 font-bold text-white transition active:scale-[0.99] disabled:opacity-60" disabled={finishing} onclick={finishWorkout}>
+              {#if finishing}<LoaderCircle class="animate-spin" size={17} /> Conclusione…{:else}<LockKeyhole size={17} /> Concludi e blocca{/if}
+            </button>
+            <p class="mt-2 text-center text-[0.65rem] leading-4 text-muted">Dopo la chiusura i dati resteranno consultabili, ma non saranno più modificabili.</p>
+          {/if}
         </section>
       </main>
+    </div>
+  </div>
+{/if}
+
+{#if historyExercise}
+  {@const previousSessions = exerciseHistory(historyExercise.exercise.id, historyExercise.beforeDate)}
+  {@const historyMode = modeFor(historyExercise.exercise)}
+  <div class="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" role="presentation" onclick={(event) => event.currentTarget === event.target && (historyExercise = null)}>
+    <div class="card max-h-[85vh] w-full max-w-md overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <header class="flex items-start justify-between gap-4 border-b border-black/[0.06] p-5">
+        <div><p class="eyebrow">Le volte precedenti</p><h2 id="history-title" class="mt-1 text-2xl font-extrabold tracking-[-0.05em]">{historyExercise.exercise.name}</h2><p class="mt-1 text-xs text-muted">Solo allenamenti conclusi prima di questa seduta.</p></div>
+        <button class="icon-button shrink-0" onclick={() => historyExercise = null} aria-label="Chiudi storico"><X size={19} /></button>
+      </header>
+
+      <div class="max-h-[65vh] overflow-auto p-5">
+        {#if previousSessions.length}
+          <table class="w-full border-separate border-spacing-0 text-left text-sm">
+            <thead class="sticky top-0 bg-white text-[0.62rem] font-bold uppercase tracking-wider text-muted">
+              <tr><th class="border-b border-black/10 pb-2 pr-3">Data</th><th class="border-b border-black/10 px-2 pb-2 text-center">Serie</th><th class="border-b border-black/10 px-2 pb-2 text-right">{historyMode === 'timed' ? 'Secondi' : 'Rip.'}</th><th class="border-b border-black/10 pb-2 pl-2 text-right">Carico</th></tr>
+            </thead>
+            <tbody>
+              {#each previousSessions as session}
+                {#each session.logs[historyExercise.exercise.id] as set, setIndex}
+                  <tr class="{setIndex === 0 ? 'font-semibold' : ''}">
+                    <td class="border-b border-black/[0.05] py-3 pr-3 text-xs capitalize">{setIndex === 0 ? formatDate(session.date) : ''}</td>
+                    <td class="border-b border-black/[0.05] px-2 py-3 text-center tabular-nums">{set.setNumber}</td>
+                    <td class="border-b border-black/[0.05] px-2 py-3 text-right tabular-nums">{set.reps ?? '—'}</td>
+                    <td class="border-b border-black/[0.05] py-3 pl-2 text-right tabular-nums">{set.weight === null ? '—' : `${set.weight} ${historyExercise.exercise.unit}`}</td>
+                  </tr>
+                {/each}
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="rounded-2xl bg-cream p-7 text-center"><History class="mx-auto text-muted" size={22} /><p class="mt-3 font-bold">Nessun dato precedente</p><p class="mt-1 text-xs leading-5 text-muted">Lo storico apparirà dopo il primo allenamento concluso con questo esercizio.</p></div>
+        {/if}
+      </div>
     </div>
   </div>
 {/if}
