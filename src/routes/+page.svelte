@@ -67,9 +67,10 @@
   let currentTheme = $derived(monthThemes[currentMonth - 1]);
   let nextWorkout = $derived(plan.find((item) => item.date >= todayKey && !sessions[item.date]?.completedAt) ?? plan.at(-1));
   let progressPercent = $derived(Math.min(100, Math.round((completedDueCount / Math.max(1, dueWorkouts.length)) * 100)));
-  let totalCompletedSets = $derived(Object.values(sessions).reduce((total, session) => total + Object.values(session.logs).flat().filter((set) => set.completed).length, 0));
-  let totalCardioMinutes = $derived(Object.values(sessions).reduce((total, session) => total + (session.cardioMinutes ?? 0), 0));
-  let totalTrainingMinutes = $derived(Object.values(sessions).reduce((total, session) => total + (session.durationMinutes ?? 0), 0));
+  let completedProgramSessions = $derived(Object.values(sessions).filter((session) => session.completedAt && session.date >= startDate && session.date <= todayKey));
+  let totalCompletedSets = $derived(completedProgramSessions.reduce((total, session) => total + Object.values(session.logs).flat().filter((set) => set.completed).length, 0));
+  let totalCardioMinutes = $derived(completedProgramSessions.reduce((total, session) => total + (session.cardioMinutes ?? 0), 0));
+  let totalTrainingMinutes = $derived(completedProgramSessions.reduce((total, session) => total + (session.durationMinutes ?? 0), 0));
 
   $effect(() => {
     if (!initialWorkoutDate || initialWorkoutOpened) return;
@@ -397,8 +398,13 @@
     setTimeout(() => { if (toast === message) toast = ''; }, 2600);
   }
 
-  function weeklyStats() {
-    const result: { label: string; done: number; planned: number }[] = [];
+  function contributionWeeks() {
+    const result: {
+      label: string;
+      done: number;
+      planned: number;
+      days: { date: string; type: WorkoutType | null; status: 'outside' | 'rest' | 'completed' | 'missed' | 'scheduled' }[];
+    }[] = [];
     const programStart = parseLocalDate(startDate);
     programStart.setHours(0, 0, 0, 0);
     if (programStart > today) return result;
@@ -416,7 +422,23 @@
       end.setHours(23, 59, 59, 999);
       const done = Object.values(sessions).filter((s) => s.completedAt && parseLocalDate(s.date) >= start && parseLocalDate(s.date) <= end).length;
       const planned = plan.filter((item) => parseLocalDate(item.date) >= start && parseLocalDate(item.date) <= end && item.date <= todayKey).length;
-      result.push({ label: new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(start), done, planned });
+      const weekStart = new Date(start);
+      weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+      const days = Array.from({ length: 7 }, (_, index) => {
+        const day = new Date(weekStart);
+        day.setDate(day.getDate() + index);
+        const date = localKey(day);
+        const workout = plan.find((item) => item.date === date);
+        const status: 'outside' | 'rest' | 'completed' | 'missed' | 'scheduled' = date < startDate
+          ? 'outside'
+          : !workout
+            ? 'rest'
+            : sessions[date]?.completedAt
+              ? 'completed'
+              : date <= todayKey ? 'missed' : 'scheduled';
+        return { date, type: workout?.type ?? null, status };
+      });
+      result.push({ label: new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(start), done, planned, days });
       start = new Date(end);
       start.setMilliseconds(start.getMilliseconds() + 1);
     }
@@ -427,6 +449,22 @@
     return Object.values(sessions)
       .filter((session) => session.completedAt && session.date < beforeDate && session.logs[exerciseId]?.length)
       .sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  function historyReps(logs: SetLog[]) {
+    const values = logs.map((set) => set.reps).filter((value): value is number => value !== null);
+    if (!values.length) return '—';
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    return minimum === maximum ? String(minimum) : `${minimum}–${maximum}`;
+  }
+
+  function historyWeight(logs: SetLog[], unit: string) {
+    const values = logs.map((set) => set.weight).filter((value): value is number => value !== null);
+    if (!values.length) return '—';
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    return `${minimum === maximum ? minimum : `${minimum}–${maximum}`} ${unit}`;
   }
 
   function sessionHasData(session: Session) {
@@ -529,24 +567,40 @@
       <section class="card mt-7 p-6">
         <div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Sedute svolte</p><p class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{completedDueCount} <span class="text-xl text-muted">su {dueWorkouts.length}</span></p></div><p class="rounded-full bg-lime/40 px-3 py-1.5 text-sm font-bold">{progressPercent}%</p></div>
         <p class="mt-3 text-xs leading-5 text-muted">Percentuale delle sedute programmate fino a oggi che hai completato interamente.</p>
-        <div class="mt-7 flex h-36 items-end gap-2">
-          {#each weeklyStats() as week}
-            <div class="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5">
-              <span class="text-center text-[0.62rem] font-bold">{week.done}/{week.planned}</span>
-              <div class="relative h-24 overflow-hidden rounded-full bg-black/[0.05]">
-                <div class="absolute bottom-0 w-full rounded-full bg-moss transition-all" style={`height: ${week.planned ? Math.max(6, week.done / week.planned * 100) : 0}%`} title={`${week.done} sedute su ${week.planned}`}></div>
+        <div class="mt-7">
+          <div class="grid items-center gap-1.5" style="grid-template-columns: 4.5rem repeat(7, minmax(0, 1fr));">
+            <span></span>
+            {#each ['L', 'M', 'M', 'G', 'V', 'S', 'D'] as dayLabel}
+              <span class="text-center text-[0.58rem] font-bold uppercase text-muted">{dayLabel}</span>
+            {/each}
+          </div>
+          <div class="mt-2 space-y-2">
+            {#each contributionWeeks() as week}
+              <div class="grid items-center gap-1.5" style="grid-template-columns: 4.5rem repeat(7, minmax(0, 1fr));">
+                <div class="min-w-0"><p class="truncate text-[0.65rem] font-bold capitalize">{week.label}</p><p class="text-[0.58rem] text-muted">{week.done}/{week.planned} fatte</p></div>
+                {#each week.days as day}
+                  <div
+                    class="grid aspect-square min-w-0 place-items-center rounded-lg text-[0.62rem] font-extrabold {day.status === 'completed' ? 'bg-moss text-white' : day.status === 'missed' ? 'bg-amber-100 text-amber-800' : day.status === 'scheduled' ? 'border border-moss/20 bg-lime/30 text-moss' : day.status === 'rest' ? 'bg-black/[0.045] text-transparent' : 'bg-transparent text-transparent'}"
+                    title={`${formatDate(day.date, true)}${day.type ? ` · Seduta ${day.type}` : ' · Riposo'}${day.status === 'completed' ? ' · Completata' : day.status === 'missed' ? ' · Non completata' : ''}`}
+                    aria-label={`${formatDate(day.date, true)}${day.type ? `, seduta ${day.type}` : ', riposo'}`}
+                  >{day.type ?? '·'}</div>
+                {/each}
               </div>
-              <span class="truncate text-center text-[0.55rem] text-muted">{week.label}</span>
-            </div>
-          {/each}
+            {/each}
+          </div>
+          <div class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[0.62rem] text-muted">
+            <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-moss"></span>Completata</span>
+            <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-amber-100"></span>Da recuperare</span>
+            <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded border border-moss/20 bg-lime/30"></span>Programmata</span>
+          </div>
         </div>
-        <p class="mt-3 text-xs text-muted">Completate / programmate dalla data di partenza, fino a un massimo di 8 settimane</p>
+        <p class="mt-3 text-xs text-muted">Una riga per settimana, dalla data di partenza fino a un massimo di 8 settimane.</p>
       </section>
 
       <section class="mt-3 grid grid-cols-3 gap-2">
-        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCompletedSets}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">serie completate</p></div>
-        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalTrainingMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">minuti totali</p></div>
-        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCardioMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">minuti cardio</p></div>
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCompletedSets}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">serie in sedute concluse</p></div>
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalTrainingMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">min di durata registrata</p></div>
+        <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCardioMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">min di cardio registrato</p></div>
       </section>
 
       <section class="mt-7">
@@ -722,14 +776,13 @@
             </thead>
             <tbody>
               {#each previousSessions as session}
-                {#each session.logs[historyExercise.exercise.id] as set, setIndex}
-                  <tr class="{setIndex === 0 ? 'font-semibold' : ''}">
-                    <td class="border-b border-black/[0.05] py-3 pr-3 text-xs capitalize">{setIndex === 0 ? formatDate(session.date) : ''}</td>
-                    <td class="border-b border-black/[0.05] px-2 py-3 text-center tabular-nums">{set.setNumber}</td>
-                    <td class="border-b border-black/[0.05] px-2 py-3 text-right tabular-nums">{set.reps ?? '—'}</td>
-                    <td class="border-b border-black/[0.05] py-3 pl-2 text-right tabular-nums">{set.weight === null ? '—' : `${set.weight} ${historyExercise.exercise.unit}`}</td>
-                  </tr>
-                {/each}
+                {@const logs = session.logs[historyExercise.exercise.id]}
+                <tr>
+                  <td class="border-b border-black/[0.05] py-3 pr-3"><span class="block text-xs font-semibold capitalize">{formatDate(session.date)}</span><span class="mt-0.5 block text-[0.58rem] font-bold uppercase tracking-wider text-muted">Seduta {session.type}</span></td>
+                  <td class="border-b border-black/[0.05] px-2 py-3 text-center font-semibold tabular-nums">{logs.filter((set) => set.completed).length}</td>
+                  <td class="border-b border-black/[0.05] px-2 py-3 text-right font-semibold tabular-nums">{historyReps(logs)}</td>
+                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums">{historyWeight(logs, historyExercise.exercise.unit)}</td>
+                </tr>
               {/each}
             </tbody>
           </table>
