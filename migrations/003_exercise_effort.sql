@@ -1,0 +1,2 @@
+ALTER TABLE set_logs
+ADD COLUMN IF NOT EXISTS effort integer CHECK (effort BETWEEN 1 AND 4);

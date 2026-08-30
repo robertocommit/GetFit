@@ -34,7 +34,7 @@
         setNumber: log.set_number,
         reps: log.reps,
         weight: log.weight === null ? null : Number(log.weight),
-        rir: log.rir,
+        effort: log.effort,
         completed: log.completed
       });
     }
@@ -344,8 +344,8 @@
     const previousExerciseComplete = previous.length >= exercise.sets
       && previous.slice(0, exercise.sets).every((set) => set.completed);
     if (!previousExerciseComplete) return current;
-    const recordedRir = previous.slice(0, exercise.sets).map((set) => set.rir).filter((value): value is number => value !== null);
-    if (recordedRir.length && Math.min(...recordedRir) < 2) return current;
+    const recordedEffort = previous.slice(0, exercise.sets).map((set) => set.effort).filter((value): value is number => value !== null);
+    if (recordedEffort.length && Math.max(...recordedEffort) >= 3) return current;
     return Math.min(current + 1, exercise.maxReps ?? current + 1);
   }
 
@@ -370,7 +370,7 @@
         setNumber: index + 1,
         reps: mode === 'strength' ? suggestedReps(exercise, previous, index) : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
         weight: mode === 'timed' || mode === 'mobility' ? null : weight,
-        rir: null,
+        effort: null,
         completed: false
       });
     }
@@ -405,7 +405,7 @@
     }
   }
 
-  function applyToAll(exerciseId: string, field: 'reps' | 'weight' | 'rir', value: number | null) {
+  function applyToAll(exerciseId: string, field: 'reps' | 'weight' | 'effort', value: number | null) {
     if (!activeSession || activeSession.completedAt) return;
     for (const set of activeSession.logs[exerciseId]) set[field] = value;
   }
@@ -423,11 +423,29 @@
     queueAutoSave();
   }
 
-  function inputRirForAll(exerciseId: string, event: Event) {
+  function inputEffortForAll(exerciseId: string, event: Event) {
     if (!activeSession || activeSession.completedAt) return;
-    const raw = (event.currentTarget as HTMLInputElement).value;
-    applyToAll(exerciseId, 'rir', raw === '' ? null : Math.max(0, Math.min(10, Number(raw))));
+    const value = Math.max(1, Math.min(4, Number((event.currentTarget as HTMLInputElement).value)));
+    applyToAll(exerciseId, 'effort', value);
     queueAutoSave();
+  }
+
+  const effortLevels = {
+    1: { label: 'Leggero', detail: 'Poco sforzo', color: '#315B47' },
+    2: { label: 'Giusto', detail: 'Impegnativo ma fluido', color: '#7FA53A' },
+    3: { label: 'Duro', detail: 'Fatica evidente', color: '#D38A24' },
+    4: { label: 'Al limite', detail: 'Fatica estrema', color: '#C84B31' }
+  } as const;
+
+  function effortLevel(value: number | null) {
+    return value && value in effortLevels ? effortLevels[value as keyof typeof effortLevels] : null;
+  }
+
+  function effortTrackStyle(value: number | null) {
+    const level = effortLevel(value);
+    const percentage = value === null ? 0 : ((value - 1) / 3) * 100;
+    const color = level?.color ?? '#DDE2DC';
+    return `background: linear-gradient(90deg, ${color} 0%, ${color} ${percentage}%, #DDE2DC ${percentage}%, #DDE2DC 100%)`;
   }
 
   function updateSessionNumber(field: 'durationMinutes' | 'cardioMinutes', event: Event) {
@@ -646,12 +664,10 @@
     return `${minimum === maximum ? minimum : `${minimum}–${maximum}`} ${unit}`;
   }
 
-  function historyRir(logs: SetLog[]) {
-    const values = logs.map((set) => set.rir).filter((value): value is number => value !== null);
-    if (!values.length) return 'RIR —';
-    const minimum = Math.min(...values);
-    const maximum = Math.max(...values);
-    return `RIR ${minimum === maximum ? minimum : `${minimum}–${maximum}`}`;
+  function historyEffort(logs: SetLog[]) {
+    const value = logs.map((set) => set.effort).find((effort): effort is number => effort !== null);
+    const level = effortLevel(value ?? null);
+    return level ? `Fatica ${value}/4 · ${level.label}` : 'Fatica —';
   }
 
   function sessionHasData(session: Session) {
@@ -893,6 +909,8 @@
           {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
             {@const exerciseMode = modeFor(exercise)}
             {@const exerciseLogs = activeSession.logs[exercise.id]}
+            {@const exerciseEffort = exerciseLogs[0]?.effort ?? null}
+            {@const exerciseEffortLevel = effortLevel(exerciseEffort)}
             <section class="card overflow-hidden">
               <div class="flex items-start justify-between gap-3 p-5 pb-3">
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
@@ -924,10 +942,15 @@
                       </div>
                     </div>
                   </div>
-                  <label class="mt-3 flex items-center gap-3 rounded-2xl bg-lime/25 p-3">
-                    <span class="min-w-0 flex-1"><strong class="block text-xs text-ink">RIR dell'esercizio</strong><span class="mt-0.5 block text-[0.68rem] leading-4 text-muted">Ripetizioni pulite che avevi ancora. Con 0–1 la prossima seduta non aumenta.</span></span>
-                    <input class="h-11 w-16 shrink-0 rounded-2xl bg-white text-center text-lg font-extrabold text-ink outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" min="0" max="10" inputmode="numeric" placeholder="—" value={exerciseLogs[0]?.rir ?? ''} oninput={(event) => inputRirForAll(exercise.id, event)} aria-label={`RIR per tutte le serie di ${exercise.name}`} />
-                  </label>
+                  <div class="mt-3 rounded-2xl border border-black/[0.05] bg-cream p-4">
+                    <div class="flex items-center justify-between gap-3">
+                      <div><span class="block text-xs font-extrabold text-ink">Quanto ti ha affaticato?</span><span class="mt-0.5 block text-[0.68rem] text-muted">Un solo valore per tutto l'esercizio</span></div>
+                      <span class="rounded-full px-3 py-1.5 text-xs font-extrabold text-white shadow-sm" style={`background-color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel ? `${exerciseEffort}/4 · ${exerciseEffortLevel.label}` : 'Scegli 1–4'}</span>
+                    </div>
+                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt)} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
+                    <div class="mt-2 grid grid-cols-4 text-center text-[0.58rem] font-bold leading-3 text-muted"><span>1<br />Leggero</span><span>2<br />Giusto</span><span>3<br />Duro</span><span>4<br />Al limite</span></div>
+                    <p class="mt-3 text-center text-[0.65rem] font-semibold" style={`color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel?.detail ?? 'Sposta la barra dopo aver finito l’esercizio'}</p>
+                  </div>
                 {:else if exerciseMode === 'timed'}
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
@@ -1045,7 +1068,7 @@
                   <td class="border-b border-black/[0.05] py-3 pr-3"><span class="block text-xs font-semibold capitalize">{formatDate(session.date)}</span><span class="mt-0.5 block text-[0.58rem] font-bold uppercase tracking-wider text-muted">Seduta {session.type}</span></td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-center font-semibold tabular-nums">{logs.filter((set) => set.completed).length}</td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-right font-semibold tabular-nums">{historyReps(logs)}</td>
-                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums"><span class="block">{historyWeight(logs, historyExercise.exercise.unit)}</span>{#if historyMode === 'strength'}<span class="mt-0.5 block text-[0.6rem] font-bold uppercase tracking-wider text-muted">{historyRir(logs)}</span>{/if}</td>
+                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums"><span class="block">{historyWeight(logs, historyExercise.exercise.unit)}</span>{#if historyMode === 'strength'}<span class="mt-0.5 block text-[0.6rem] font-bold uppercase tracking-wider text-muted">{historyEffort(logs)}</span>{/if}</td>
                 </tr>
               {/each}
             </tbody>
@@ -1151,3 +1174,31 @@
 {#if toast}
   <div class="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white shadow-card">{toast}</div>
 {/if}
+
+<style>
+  .effort-range {
+    height: 0.55rem;
+    appearance: none;
+    border-radius: 9999px;
+    cursor: pointer;
+  }
+
+  .effort-range::-webkit-slider-thumb {
+    height: 1.7rem;
+    width: 1.7rem;
+    appearance: none;
+    border: 4px solid white;
+    border-radius: 9999px;
+    background: #17211b;
+    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
+  }
+
+  .effort-range::-moz-range-thumb {
+    height: 1.2rem;
+    width: 1.2rem;
+    border: 4px solid white;
+    border-radius: 9999px;
+    background: #17211b;
+    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
+  }
+</style>

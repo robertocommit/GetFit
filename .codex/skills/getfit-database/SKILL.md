@@ -1,6 +1,6 @@
 ---
 name: getfit-database
-description: Access, inspect, and safely update the production PostgreSQL data for the GetFit workout app deployed as Stormkit app 40, environment 42. Use for workout sessions, set logs, RIR, activities, settings, migrations, or production-data diagnostics for GetFit; do not use for unrelated databases on the same servers.
+description: Access, inspect, and safely update the production PostgreSQL data for the GetFit workout app deployed as Stormkit app 40, environment 42. Use for workout sessions, set logs, perceived effort, activities, settings, migrations, or production-data diagnostics for GetFit; do not use for unrelated databases on the same servers.
 ---
 
 # GetFit production database

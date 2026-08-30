@@ -41,7 +41,7 @@ export type SetLog = {
   setNumber: number;
   reps: number | null;
   weight: number | null;
-  rir: number | null;
+  effort: number | null;
   completed: boolean;
 };
 

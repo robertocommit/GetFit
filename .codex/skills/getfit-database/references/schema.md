@@ -31,10 +31,11 @@ Current routing, verified 2026-08-30:
 - `id`: primary key
 - `session_id`: foreign key to `workout_sessions`
 - `exercise_id`, `set_number`
-- `reps`, `weight`, `rir`
+- `reps`, `weight`, `effort`
 - `completed`
 - unique key: `(session_id, exercise_id, set_number)`
-- RIR is constrained to `0..10`; null means it was not recorded.
+- Perceived effort is constrained to `1..4`; the same exercise-level value is stored on every set. Null means it was not recorded.
+- The legacy `rir` column may still exist for backward compatibility but is no longer used by the application.
 
 ### `activity_logs`
 
@@ -71,7 +72,7 @@ Sets with exercise context:
 
 ```sql
 SELECT s.workout_date, s.workout_type, l.exercise_id, l.set_number,
-       l.reps, l.weight, l.rir, l.completed
+       l.reps, l.weight, l.effort, l.completed
 FROM set_logs AS l
 JOIN workout_sessions AS s ON s.id = l.session_id
 ORDER BY s.workout_date DESC, l.exercise_id, l.set_number;

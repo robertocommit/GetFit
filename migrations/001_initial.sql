@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS set_logs (
   reps integer CHECK (reps >= 0),
   weight numeric(7,2) CHECK (weight >= 0),
   rir integer CHECK (rir BETWEEN 0 AND 10),
+  effort integer CHECK (effort BETWEEN 1 AND 4),
   completed boolean NOT NULL DEFAULT false,
   UNIQUE (session_id, exercise_id, set_number)
 );
