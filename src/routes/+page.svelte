@@ -344,6 +344,8 @@
     const previousExerciseComplete = previous.length >= exercise.sets
       && previous.slice(0, exercise.sets).every((set) => set.completed);
     if (!previousExerciseComplete) return current;
+    const recordedRir = previous.slice(0, exercise.sets).map((set) => set.rir).filter((value): value is number => value !== null);
+    if (recordedRir.length && Math.min(...recordedRir) < 2) return current;
     return Math.min(current + 1, exercise.maxReps ?? current + 1);
   }
 
@@ -922,7 +924,7 @@
                       </div>
                     </div>
                   </div>
-                  <p class="mt-3 rounded-2xl bg-lime/25 px-3 py-2 text-center text-[0.68rem] leading-4 text-muted"><strong class="text-ink">RIR</strong> = quante ripetizioni pulite sentivi di avere ancora. Inseriscilo dopo ogni serie.</p>
+                  <p class="mt-3 rounded-2xl bg-lime/25 px-3 py-2 text-center text-[0.68rem] leading-4 text-muted"><strong class="text-ink">RIR</strong> = quante ripetizioni pulite sentivi di avere ancora. Con 0–1 la prossima seduta non aumenta.</p>
                 {:else if exerciseMode === 'timed'}
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
