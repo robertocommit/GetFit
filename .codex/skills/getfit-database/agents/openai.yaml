@@ -1,0 +1,4 @@
+interface:
+  display_name: "GetFit Database"
+  short_description: "Safely inspect and update GetFit production"
+  default_prompt: "Use $getfit-database to inspect the relevant GetFit production data and make only the requested safe changes."
