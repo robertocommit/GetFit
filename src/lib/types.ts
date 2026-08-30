@@ -1,4 +1,16 @@
 export type WorkoutType = 'A' | 'B' | 'C';
+export type ActivityType = 'run' | 'wing_chun';
+
+export type ActivityLog = {
+  date: string;
+  type: ActivityType;
+  completedAt: string | null;
+  durationMinutes: number | null;
+  distanceKm: number | null;
+  rpe: number | null;
+  sprintCompleted: boolean;
+  notes: string;
+};
 
 export type Exercise = {
   id: string;

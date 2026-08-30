@@ -13,10 +13,18 @@ export async function loadAppData() {
   }>(`SELECT to_char(s.workout_date, 'YYYY-MM-DD') AS workout_date, l.exercise_id, l.set_number,
       l.reps, l.weight::text, l.rir, l.completed FROM set_logs l
       JOIN workout_sessions s ON s.id = l.session_id ORDER BY s.workout_date, l.exercise_id, l.set_number`);
+  const activities = await query<{
+    activity_date: string; activity_type: 'run' | 'wing_chun'; duration_minutes: number | null;
+    distance_km: string | null; rpe: number | null; sprint_completed: boolean;
+    notes: string; completed_at: string;
+  }>(`SELECT to_char(activity_date, 'YYYY-MM-DD') AS activity_date, activity_type,
+      duration_minutes, distance_km::text, rpe, sprint_completed, notes, completed_at::text
+      FROM activity_logs ORDER BY activity_date, activity_type`);
 
   return {
     startDate: settings.rows[0]?.start_date,
     sessions: sessions.rows,
-    logs: logs.rows
+    logs: logs.rows,
+    activities: activities.rows
   };
 }

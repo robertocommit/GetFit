@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
-  import type { Exercise, Session, SetLog, WorkoutType } from '$lib/types';
+  import type { ActivityLog, ActivityType, Exercise, Session, SetLog, WorkoutType } from '$lib/types';
 
   let { data, initialWorkoutDate = null } = $props<{ data: any; initialWorkoutDate?: string | null }>();
+  type ContributionStatus = 'outside' | 'rest' | 'completed' | 'partial' | 'missed' | 'scheduled';
+  type ContributionMarker = { label: string; name: string; status: 'completed' | 'missed' | 'scheduled' };
+  type ContributionDay = { date: string; status: ContributionStatus; markers: ContributionMarker[] };
 
   function initialStartDate() {
     return data.startDate as string;
@@ -38,6 +41,24 @@
     return result;
   }
 
+  function initialActivities() {
+    const result: Record<string, ActivityLog> = {};
+    for (const row of data.activities ?? []) {
+      const activity: ActivityLog = {
+        date: row.activity_date,
+        type: row.activity_type,
+        completedAt: row.completed_at,
+        durationMinutes: row.duration_minutes,
+        distanceKm: row.distance_km === null ? null : Number(row.distance_km),
+        rpe: row.rpe,
+        sprintCompleted: row.sprint_completed,
+        notes: row.notes
+      };
+      result[activityKey(activity.date, activity.type)] = activity;
+    }
+    return result;
+  }
+
   let tab = $state<'home' | 'calendar' | 'progress'>('home');
   let startDate = $state(initialStartDate());
   let activeSession = $state<Session | null>(null);
@@ -57,6 +78,9 @@
   let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
   let historyExercise = $state<{ exercise: Exercise; beforeDate: string } | null>(null);
   let sessions = $state<Record<string, Session>>(initialSessions());
+  let activities = $state<Record<string, ActivityLog>>(initialActivities());
+  let activeActivity = $state<ActivityLog | null>(null);
+  let activitySaving = $state(false);
 
   const today = new Date();
   const todayKey = localKey(today);
@@ -71,6 +95,10 @@
   let totalCompletedSets = $derived(completedProgramSessions.reduce((total, session) => total + Object.values(session.logs).flat().filter((set) => set.completed).length, 0));
   let totalCardioMinutes = $derived(completedProgramSessions.reduce((total, session) => total + (session.cardioMinutes ?? 0), 0));
   let totalTrainingMinutes = $derived(completedProgramSessions.reduce((total, session) => total + (session.durationMinutes ?? 0), 0));
+  let completedActivities = $derived(Object.values(activities).filter((activity) => activity.completedAt && activity.date >= activityTrackingStart() && activity.date <= todayKey));
+  let completedRuns = $derived(completedActivities.filter((activity) => activity.type === 'run'));
+  let completedWingChun = $derived(completedActivities.filter((activity) => activity.type === 'wing_chun').length);
+  let totalRunDistance = $derived(Math.round(completedRuns.reduce((total, activity) => total + (activity.distanceKm ?? 0), 0) * 10) / 10);
 
   $effect(() => {
     if (!initialWorkoutDate || initialWorkoutOpened) return;
@@ -105,6 +133,121 @@
 
   function localKey(date: Date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  function activityKey(date: string, type: ActivityType) {
+    return `${date}:${type}`;
+  }
+
+  function activityName(type: ActivityType) {
+    return type === 'run' ? 'Corsa' : 'Wing Chun';
+  }
+
+  function activityTrackingStart() {
+    const start = parseLocalDate(startDate);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    return localKey(start);
+  }
+
+  function wingChunStartDate() {
+    const start = parseLocalDate(activityTrackingStart());
+    start.setDate(start.getDate() + 7);
+    return localKey(start);
+  }
+
+  function supplementalTypesForDate(date: string): ActivityType[] {
+    const parsed = parseLocalDate(date);
+    const trackingStart = parseLocalDate(activityTrackingStart());
+    const wingChunStart = parseLocalDate(wingChunStartDate());
+    if (parsed < trackingStart || parsed >= programEnd(startDate)) return [];
+    const day = parsed.getDay();
+    const result: ActivityType[] = [];
+    if ([1, 3, 5].includes(day)) result.push('run');
+    if (parsed >= wingChunStart && [1, 3].includes(day)) result.push('wing_chun');
+    return result;
+  }
+
+  function activitiesThisWeek() {
+    const monday = new Date(today);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const result: { date: string; type: ActivityType }[] = [];
+    for (let offset = 0; offset < 7; offset++) {
+      const day = new Date(monday);
+      day.setDate(day.getDate() + offset);
+      const date = localKey(day);
+      for (const type of supplementalTypesForDate(date)) result.push({ date, type });
+    }
+    return result;
+  }
+
+  function newActivity(date: string, type: ActivityType): ActivityLog {
+    return {
+      date,
+      type,
+      completedAt: null,
+      durationMinutes: null,
+      distanceKm: type === 'run' ? 1.2 : null,
+      rpe: null,
+      sprintCompleted: type === 'run',
+      notes: ''
+    };
+  }
+
+  function openActivity(date: string, type: ActivityType) {
+    activeActivity = { ...(activities[activityKey(date, type)] ?? newActivity(date, type)) };
+  }
+
+  async function persistActivity(activity: ActivityLog) {
+    activitySaving = true;
+    try {
+      const response = await fetch('/api/activities', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(activity)
+      });
+      if (!response.ok) throw new Error('Salvataggio non riuscito');
+      const result = await response.json();
+      const saved = { ...activity, completedAt: result.completedAt };
+      activities[activityKey(saved.date, saved.type)] = saved;
+      activities = { ...activities };
+      return true;
+    } catch {
+      showToast('Attività non salvata');
+      return false;
+    } finally {
+      activitySaving = false;
+    }
+  }
+
+  async function quickCompleteActivity(date: string, type: ActivityType) {
+    if (activities[activityKey(date, type)]?.completedAt || activitySaving) return;
+    if (await persistActivity(newActivity(date, type))) showToast(`${activityName(type)} registrata`);
+  }
+
+  async function saveActiveActivity() {
+    if (!activeActivity || activitySaving) return;
+    if (await persistActivity(activeActivity)) {
+      activeActivity = null;
+      showToast('Attività aggiornata');
+    }
+  }
+
+  async function removeActiveActivity() {
+    if (!activeActivity?.completedAt || activitySaving) return;
+    activitySaving = true;
+    try {
+      const response = await fetch('/api/activities', {
+        method: 'DELETE', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ date: activeActivity.date, type: activeActivity.type })
+      });
+      if (!response.ok) throw new Error('Rimozione non riuscita');
+      delete activities[activityKey(activeActivity.date, activeActivity.type)];
+      activities = { ...activities };
+      activeActivity = null;
+      showToast('Registrazione rimossa');
+    } catch {
+      showToast('Impossibile rimuovere l’attività');
+    } finally {
+      activitySaving = false;
+    }
   }
 
   function formatDate(value: string, long = false) {
@@ -403,9 +546,9 @@
       label: string;
       done: number;
       planned: number;
-      days: { date: string; type: WorkoutType | null; status: 'outside' | 'rest' | 'completed' | 'missed' | 'scheduled' }[];
+      days: ContributionDay[];
     }[] = [];
-    const programStart = parseLocalDate(startDate);
+    const programStart = parseLocalDate(activityTrackingStart());
     programStart.setHours(0, 0, 0, 0);
     if (programStart > today) return result;
 
@@ -420,29 +563,48 @@
       const end = new Date(start);
       end.setDate(end.getDate() + (6 - ((end.getDay() + 6) % 7)));
       end.setHours(23, 59, 59, 999);
-      const done = Object.values(sessions).filter((s) => s.completedAt && parseLocalDate(s.date) >= start && parseLocalDate(s.date) <= end).length;
-      const planned = plan.filter((item) => parseLocalDate(item.date) >= start && parseLocalDate(item.date) <= end && item.date <= todayKey).length;
       const weekStart = new Date(start);
       weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
-      const days = Array.from({ length: 7 }, (_, index) => {
+      const days: ContributionDay[] = Array.from({ length: 7 }, (_, index) => {
         const day = new Date(weekStart);
         day.setDate(day.getDate() + index);
         const date = localKey(day);
         const workout = plan.find((item) => item.date === date);
-        const status: 'outside' | 'rest' | 'completed' | 'missed' | 'scheduled' = date < startDate
+        const markerStatus = (completed: boolean): 'completed' | 'missed' | 'scheduled' => completed ? 'completed' : date < todayKey ? 'missed' : 'scheduled';
+        const markers: ContributionMarker[] = [];
+        if (workout) markers.push({ label: workout.type, name: `Palestra ${workout.type}`, status: markerStatus(Boolean(sessions[date]?.completedAt)) });
+        for (const type of supplementalTypesForDate(date)) {
+          markers.push({
+            label: type === 'run' ? 'R' : 'W',
+            name: activityName(type),
+            status: markerStatus(Boolean(activities[activityKey(date, type)]?.completedAt))
+          });
+        }
+        const completedCount = markers.filter((marker) => marker.status === 'completed').length;
+        const status: ContributionStatus = date < activityTrackingStart()
           ? 'outside'
-          : !workout
+          : !markers.length
             ? 'rest'
-            : sessions[date]?.completedAt
+            : markers.every((marker) => marker.status === 'completed')
               ? 'completed'
-              : date <= todayKey ? 'missed' : 'scheduled';
-        return { date, type: workout?.type ?? null, status };
+              : completedCount > 0
+                ? 'partial'
+                : markers.some((marker) => marker.status === 'missed') ? 'missed' : 'scheduled';
+        return { date, status, markers };
       });
+      const dueMarkers = days.flatMap((day) => day.date <= todayKey ? day.markers : []);
+      const done = dueMarkers.filter((marker) => marker.status === 'completed').length;
+      const planned = dueMarkers.length;
       result.push({ label: new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(start), done, planned, days });
       start = new Date(end);
       start.setMilliseconds(start.getMilliseconds() + 1);
     }
     return result;
+  }
+
+  function contributionTitle(day: ContributionDay) {
+    const details = day.markers.map((marker) => `${marker.name}: ${marker.status === 'completed' ? 'completata' : marker.status === 'missed' ? 'da recuperare' : 'programmata'}`);
+    return `${formatDate(day.date, true)}${details.length ? ` · ${details.join(' · ')}` : ' · Riposo'}`;
   }
 
   function exerciseHistory(exerciseId: string, beforeDate: string) {
@@ -513,6 +675,32 @@
         </section>
       {/if}
 
+      <section class="card overflow-hidden">
+        <div class="p-5"><p class="eyebrow">Attività complementari</p><div class="mt-1 flex items-end justify-between gap-3"><h2 class="text-xl font-bold tracking-[-0.03em]">Questa settimana</h2><p class="text-xs text-muted">Corsa · Wing Chun</p></div>{#if todayKey < wingChunStartDate()}<p class="mt-2 text-xs text-muted">Wing Chun previsto da <span class="capitalize">{formatDate(wingChunStartDate(), true)}</span>.</p>{/if}</div>
+        <div class="border-t border-black/[0.05]">
+          {#each activitiesThisWeek() as item}
+            {@const logged = activities[activityKey(item.date, item.type)]}
+            {@const future = item.date > todayKey}
+            <div class="flex items-center gap-3 border-b border-black/[0.05] p-3 last:border-0">
+              <button class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-1 text-left disabled:cursor-default" disabled={future} onclick={() => openActivity(item.date, item.type)}>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl {item.type === 'run' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}">
+                  {#if item.type === 'run'}<Footprints size={18} />{:else}<Swords size={18} />{/if}
+                </span>
+                <span class="min-w-0"><span class="block text-sm font-bold">{activityName(item.type)}</span><span class="mt-0.5 block text-xs capitalize text-muted">{formatDate(item.date)} · {item.type === 'run' ? 'mattina' : 'sera'}</span></span>
+              </button>
+              <button
+                class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-35 {logged?.completedAt ? 'bg-moss text-white' : 'border border-black/10 bg-white text-muted'}"
+                disabled={future || activitySaving}
+                onclick={() => logged?.completedAt ? openActivity(item.date, item.type) : quickCompleteActivity(item.date, item.type)}
+                aria-label={logged?.completedAt ? `Modifica ${activityName(item.type)}` : `Segna ${activityName(item.type)} come svolta`}
+              >{#if logged?.completedAt}<Check size={17} />{:else}<Plus size={17} />{/if}</button>
+            </div>
+          {:else}
+            <p class="p-5 text-sm text-muted">Le attività complementari inizieranno nella settimana del programma.</p>
+          {/each}
+        </div>
+      </section>
+
       <section class="grid grid-cols-2 gap-3">
         <div class="card p-5">
           <Flame class="text-moss" size={21} />
@@ -537,7 +725,7 @@
     <main class="px-5">
       <p class="eyebrow pt-3">Programma completo</p>
       <h1 class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">Calendario</h1>
-      <p class="mt-2 text-sm text-muted">Martedì A · Giovedì B · Sabato C</p>
+      <p class="mt-2 text-sm leading-6 text-muted">Palestra: mar A · gio B · sab C<br />Corsa: lun · mer · ven · Wing Chun: lun · mer dalla seconda settimana</p>
 
       <div class="mt-7 space-y-3">
         {#each plan as item, index}
@@ -580,27 +768,37 @@
                 <div class="min-w-0"><p class="truncate text-[0.65rem] font-bold capitalize">{week.label}</p><p class="text-[0.58rem] text-muted">{week.done}/{week.planned} fatte</p></div>
                 {#each week.days as day}
                   <div
-                    class="grid aspect-square min-w-0 place-items-center rounded-lg text-[0.62rem] font-extrabold {day.status === 'completed' ? 'bg-moss text-white' : day.status === 'missed' ? 'bg-amber-100 text-amber-800' : day.status === 'scheduled' ? 'border border-moss/20 bg-lime/30 text-moss' : day.status === 'rest' ? 'bg-black/[0.045] text-transparent' : 'bg-transparent text-transparent'}"
-                    title={`${formatDate(day.date, true)}${day.type ? ` · Seduta ${day.type}` : ' · Riposo'}${day.status === 'completed' ? ' · Completata' : day.status === 'missed' ? ' · Non completata' : ''}`}
-                    aria-label={`${formatDate(day.date, true)}${day.type ? `, seduta ${day.type}` : ', riposo'}`}
-                  >{day.type ?? '·'}</div>
+                    class="flex aspect-square min-w-0 flex-wrap items-center justify-center gap-0.5 rounded-lg px-0.5 text-[0.5rem] font-extrabold leading-none {day.status === 'completed' ? 'bg-moss text-white' : day.status === 'partial' ? 'bg-lime text-ink' : day.status === 'missed' ? 'bg-amber-100 text-amber-800' : day.status === 'scheduled' ? 'border border-moss/20 bg-lime/30 text-moss' : day.status === 'rest' ? 'bg-black/[0.045] text-transparent' : 'bg-transparent text-transparent'}"
+                    title={contributionTitle(day)}
+                    aria-label={contributionTitle(day)}
+                  >{#each day.markers as marker}<span>{marker.label}</span>{:else}<span>·</span>{/each}</div>
                 {/each}
               </div>
             {/each}
           </div>
           <div class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[0.62rem] text-muted">
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-moss"></span>Completata</span>
+            <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-lime"></span>Parziale</span>
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-amber-100"></span>Da recuperare</span>
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded border border-moss/20 bg-lime/30"></span>Programmata</span>
           </div>
         </div>
-        <p class="mt-3 text-xs text-muted">Una riga per settimana, dalla data di partenza fino a un massimo di 8 settimane.</p>
+        <p class="mt-3 text-xs leading-5 text-muted">Una riga per settimana, fino a un massimo di 8. A/B/C = palestra · R = corsa · W = Wing Chun.</p>
       </section>
 
       <section class="mt-3 grid grid-cols-3 gap-2">
         <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCompletedSets}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">serie in sedute concluse</p></div>
         <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalTrainingMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">min di durata registrata</p></div>
         <div class="card p-4"><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalCardioMinutes}</p><p class="mt-1 text-[0.65rem] leading-4 text-muted">min di cardio registrato</p></div>
+      </section>
+
+      <section class="card mt-3 p-5">
+        <p class="eyebrow">Attività complementari svolte</p>
+        <div class="mt-4 grid grid-cols-3 gap-3">
+          <div><p class="text-2xl font-extrabold tracking-[-0.05em]">{completedRuns.length}</p><p class="mt-1 text-[0.65rem] text-muted">corse</p></div>
+          <div><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalRunDistance}</p><p class="mt-1 text-[0.65rem] text-muted">km registrati</p></div>
+          <div><p class="text-2xl font-extrabold tracking-[-0.05em]">{completedWingChun}</p><p class="mt-1 text-[0.65rem] text-muted">Wing Chun</p></div>
+        </div>
       </section>
 
       <section class="mt-7">
@@ -755,6 +953,43 @@
         </section>
       </main>
     </div>
+  </div>
+{/if}
+
+{#if activeActivity}
+  <div class="fixed inset-0 z-[65] flex items-end justify-center bg-black/35 p-3 sm:items-center" role="presentation" onclick={(event) => event.currentTarget === event.target && (activeActivity = null)}>
+    <form class="card max-h-[90vh] w-full max-w-md overflow-auto p-6" onsubmit={(event) => { event.preventDefault(); void saveActiveActivity(); }}>
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex min-w-0 items-center gap-3">
+          <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl {activeActivity.type === 'run' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}">
+            {#if activeActivity.type === 'run'}<Footprints size={20} />{:else}<Swords size={20} />{/if}
+          </span>
+          <div><p class="eyebrow">{activeActivity.type === 'run' ? 'Mattina' : 'Sera'} · <span class="capitalize">{formatDate(activeActivity.date)}</span></p><h2 class="mt-1 text-2xl font-extrabold tracking-[-0.05em]">{activityName(activeActivity.type)}</h2></div>
+        </div>
+        <button class="icon-button shrink-0" type="button" onclick={() => activeActivity = null} aria-label="Chiudi"><X size={19} /></button>
+      </div>
+
+      <p class="mt-5 text-sm leading-6 text-muted">Compila solo quello che ti è utile. Salvare significa segnare l’attività come svolta.</p>
+      <div class="mt-5 grid grid-cols-2 gap-3">
+        <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" placeholder="—" value={activeActivity.durationMinutes ?? ''} oninput={(event) => activeActivity!.durationMinutes = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">min</span></span></label>
+        <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Intensità</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" max="10" placeholder="—" value={activeActivity.rpe ?? ''} oninput={(event) => activeActivity!.rpe = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">/10</span></span></label>
+      </div>
+
+      {#if activeActivity.type === 'run'}
+        <div class="mt-3 grid grid-cols-2 gap-3">
+          <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Distanza</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="0.1" step="0.1" value={activeActivity.distanceKm ?? ''} oninput={(event) => activeActivity!.distanceKm = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">km</span></span></label>
+          <label class="flex cursor-pointer items-center justify-between gap-2 rounded-2xl bg-cream p-3"><span><span class="eyebrow">Finale veloce</span><span class="mt-1 block text-xs text-muted">200 metri</span></span><input class="h-5 w-5 accent-[#315B47]" type="checkbox" checked={activeActivity.sprintCompleted} onchange={(event) => activeActivity!.sprintCompleted = event.currentTarget.checked} /></label>
+        </div>
+      {/if}
+
+      <label class="mt-3 block"><span class="eyebrow ml-1">Note</span><textarea class="mt-2 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito?" value={activeActivity.notes} oninput={(event) => activeActivity!.notes = event.currentTarget.value}></textarea></label>
+      <button class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-4 font-bold text-white disabled:opacity-60" type="submit" disabled={activitySaving}>
+        {#if activitySaving}<LoaderCircle class="animate-spin" size={17} /> Salvataggio…{:else}<Check size={17} /> {activeActivity.completedAt ? 'Aggiorna attività' : 'Segna come svolta'}{/if}
+      </button>
+      {#if activeActivity.completedAt}
+        <button class="mt-3 w-full py-2 text-sm font-bold text-red-700 disabled:opacity-50" type="button" disabled={activitySaving} onclick={removeActiveActivity}>Segna come non svolta</button>
+      {/if}
+    </form>
   </div>
 {/if}
 
