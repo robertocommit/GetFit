@@ -405,7 +405,7 @@
     }
   }
 
-  function applyToAll(exerciseId: string, field: 'reps' | 'weight', value: number | null) {
+  function applyToAll(exerciseId: string, field: 'reps' | 'weight' | 'rir', value: number | null) {
     if (!activeSession || activeSession.completedAt) return;
     for (const set of activeSession.logs[exerciseId]) set[field] = value;
   }
@@ -423,10 +423,10 @@
     queueAutoSave();
   }
 
-  function updateSetRir(set: SetLog, event: Event) {
+  function inputRirForAll(exerciseId: string, event: Event) {
     if (!activeSession || activeSession.completedAt) return;
     const raw = (event.currentTarget as HTMLInputElement).value;
-    set.rir = raw === '' ? null : Math.max(0, Math.min(10, Number(raw)));
+    applyToAll(exerciseId, 'rir', raw === '' ? null : Math.max(0, Math.min(10, Number(raw))));
     queueAutoSave();
   }
 
@@ -924,7 +924,10 @@
                       </div>
                     </div>
                   </div>
-                  <p class="mt-3 rounded-2xl bg-lime/25 px-3 py-2 text-center text-[0.68rem] leading-4 text-muted"><strong class="text-ink">RIR</strong> = quante ripetizioni pulite sentivi di avere ancora. Con 0–1 la prossima seduta non aumenta.</p>
+                  <label class="mt-3 flex items-center gap-3 rounded-2xl bg-lime/25 p-3">
+                    <span class="min-w-0 flex-1"><strong class="block text-xs text-ink">RIR dell'esercizio</strong><span class="mt-0.5 block text-[0.68rem] leading-4 text-muted">Ripetizioni pulite che avevi ancora. Con 0–1 la prossima seduta non aumenta.</span></span>
+                    <input class="h-11 w-16 shrink-0 rounded-2xl bg-white text-center text-lg font-extrabold text-ink outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" min="0" max="10" inputmode="numeric" placeholder="—" value={exerciseLogs[0]?.rir ?? ''} oninput={(event) => inputRirForAll(exercise.id, event)} aria-label={`RIR per tutte le serie di ${exercise.name}`} />
+                  </label>
                 {:else if exerciseMode === 'timed'}
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
@@ -945,18 +948,10 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <div class="rounded-2xl p-2 transition {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}">
-                      <button class="flex min-h-9 w-full items-center justify-center gap-2 rounded-xl px-1 font-bold disabled:cursor-default" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
-                        <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
-                        {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
-                      </button>
-                      {#if exerciseMode === 'strength'}
-                        <label class="mt-1 flex items-center justify-center gap-2 border-t pt-2 text-[0.65rem] font-bold uppercase tracking-wider {set.completed ? 'border-white/15 text-white/75' : 'border-black/[0.06] text-muted'}">
-                          <span>RIR</span>
-                          <input class="h-8 w-12 rounded-xl bg-white text-center text-sm font-extrabold text-ink outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" min="0" max="10" inputmode="numeric" placeholder="—" value={set.rir ?? ''} oninput={(event) => updateSetRir(set, event)} aria-label={`RIR serie ${set.setNumber}`} />
-                        </label>
-                      {/if}
-                    </div>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                      <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
+                      {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
+                    </button>
                   {/each}
                 </div>
               </div>
