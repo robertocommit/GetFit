@@ -8,6 +8,10 @@
   type ContributionStatus = 'outside' | 'rest' | 'completed' | 'partial' | 'missed' | 'scheduled';
   type ContributionMarker = { label: string; name: string; status: 'completed' | 'missed' | 'scheduled' };
   type ContributionDay = { date: string; status: ContributionStatus; markers: ContributionMarker[] };
+  type WeekItem =
+    | { kind: 'workout'; type: WorkoutType; label: string; completed: boolean; future: boolean; missed: boolean }
+    | { kind: 'activity'; type: ActivityType; label: string; completed: boolean; future: boolean; missed: boolean };
+  type WeekDay = { date: string; dayLabel: string; dateLabel: string; today: boolean; items: WeekItem[] };
 
   function initialStartDate() {
     return data.startDate as string;
@@ -99,6 +103,11 @@
   let completedRuns = $derived(completedActivities.filter((activity) => activity.type === 'run'));
   let completedWingChun = $derived(completedActivities.filter((activity) => activity.type === 'wing_chun').length);
   let totalRunDistance = $derived(Math.round(completedRuns.reduce((total, activity) => total + (activity.distanceKm ?? 0), 0) * 10) / 10);
+  let weekDays = $derived(currentWeekDays());
+  let weekItems = $derived(weekDays.flatMap((day) => day.items));
+  let weekCompletedCount = $derived(weekItems.filter((item) => item.completed).length);
+  let weekPlannedCount = $derived(weekItems.length);
+  let weekProgress = $derived(Math.round((weekCompletedCount / Math.max(1, weekPlannedCount)) * 100));
 
   $effect(() => {
     if (!initialWorkoutDate || initialWorkoutOpened) return;
@@ -167,17 +176,58 @@
     return result;
   }
 
-  function activitiesThisWeek() {
+  function currentWeekDays(): WeekDay[] {
     const monday = new Date(today);
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-    const result: { date: string; type: ActivityType }[] = [];
-    for (let offset = 0; offset < 7; offset++) {
+    return Array.from({ length: 7 }, (_, offset) => {
       const day = new Date(monday);
       day.setDate(day.getDate() + offset);
       const date = localKey(day);
-      for (const type of supplementalTypesForDate(date)) result.push({ date, type });
+      const future = date > todayKey;
+      const workout = plan.find((item) => item.date === date);
+      const items: WeekItem[] = [];
+      if (workout) {
+        const completed = Boolean(sessions[date]?.completedAt);
+        items.push({ kind: 'workout', type: workout.type, label: `Palestra ${workout.type}`, completed, future, missed: !completed && date < todayKey });
+      }
+      for (const type of supplementalTypesForDate(date)) {
+        const completed = Boolean(activities[activityKey(date, type)]?.completedAt);
+        items.push({ kind: 'activity', type, label: activityName(type), completed, future, missed: !completed && date < todayKey });
+      }
+      return {
+        date,
+        dayLabel: new Intl.DateTimeFormat('it-IT', { weekday: 'short' }).format(day).replace('.', ''),
+        dateLabel: new Intl.DateTimeFormat('it-IT', { day: 'numeric' }).format(day),
+        today: date === todayKey,
+        items
+      };
+    });
+  }
+
+  function weekRangeLabel() {
+    if (!weekDays.length) return '';
+    const first = parseLocalDate(weekDays[0].date);
+    const last = parseLocalDate(weekDays.at(-1)!.date);
+    const firstLabel = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: first.getMonth() === last.getMonth() ? undefined : 'short' }).format(first);
+    const lastLabel = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(last);
+    return `${firstLabel} – ${lastLabel}`;
+  }
+
+  function weekItemStatus(item: WeekItem, day: WeekDay) {
+    if (item.completed) return 'Completata';
+    if (item.missed) return 'Da recuperare';
+    if (day.today) return 'Oggi';
+    return 'Prevista';
+  }
+
+  function openWeekItem(day: WeekDay, item: WeekItem) {
+    if (item.kind === 'workout') {
+      openWorkout(day.date, item.type);
+      return;
     }
-    return result;
+    if (item.future || activitySaving) return;
+    if (item.completed) openActivity(day.date, item.type);
+    else void quickCompleteActivity(day.date, item.type);
   }
 
   function newActivity(date: string, type: ActivityType): ActivityLog {
@@ -697,6 +747,43 @@
         <div class="mt-2 flex justify-between text-xs font-medium text-muted"><span>{completedDueCount} su {dueWorkouts.length} sedute previste finora</span><span>{progressPercent}%</span></div>
       </section>
 
+      <section class="card overflow-hidden">
+        <div class="p-5 pb-4">
+          <div class="flex items-start justify-between gap-4">
+            <div><p class="eyebrow">La tua settimana</p><h2 class="mt-1 text-2xl font-extrabold tracking-[-0.04em]">Tutto in un colpo d'occhio</h2><p class="mt-1 text-xs capitalize text-muted">{weekRangeLabel()}</p></div>
+            <div class="shrink-0 rounded-2xl bg-lime/40 px-3 py-2 text-right"><span class="block text-xl font-extrabold leading-none">{weekCompletedCount}/{weekPlannedCount}</span><span class="mt-1 block text-[0.58rem] font-bold uppercase tracking-wider text-muted">completate</span></div>
+          </div>
+          <div class="mt-4 h-2 overflow-hidden rounded-full bg-black/[0.06]"><div class="h-full rounded-full bg-moss transition-all" style={`width: ${weekProgress}%`}></div></div>
+        </div>
+        <div class="border-t border-black/[0.05] px-3 py-2">
+          {#each weekDays as day}
+            <div class="flex min-h-16 items-center gap-3 border-b border-black/[0.05] py-2.5 last:border-0 {day.today ? 'rounded-2xl bg-lime/10 px-2' : 'px-2'}">
+              <div class="w-10 shrink-0 text-center"><span class="block text-[0.62rem] font-extrabold uppercase tracking-wider {day.today ? 'text-moss' : 'text-muted'}">{day.dayLabel}</span><span class="mx-auto mt-1 grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold {day.today ? 'bg-ink text-lime' : 'bg-cream text-ink'}">{day.dateLabel}</span></div>
+              {#if day.items.length}
+                <div class="flex min-w-0 flex-1 flex-wrap gap-2">
+                  {#each day.items as item}
+                    <button
+                      class="flex min-h-10 min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left transition active:scale-[0.98] disabled:cursor-default {item.completed ? 'border-moss bg-moss text-white' : item.missed ? 'border-amber-200 bg-amber-50 text-amber-800' : day.today ? 'border-moss/20 bg-lime/40 text-ink' : 'border-black/[0.06] bg-cream text-muted'}"
+                      disabled={item.kind === 'activity' && (item.future || activitySaving)}
+                      onclick={() => openWeekItem(day, item)}
+                      aria-label={`${item.label}: ${weekItemStatus(item, day)}`}
+                    >
+                      <span class="grid h-7 w-7 shrink-0 place-items-center rounded-xl {item.completed ? 'bg-white/15' : 'bg-white'}">
+                        {#if item.completed}<Check size={14} />{:else if item.kind === 'workout'}<Dumbbell size={14} />{:else if item.type === 'run'}<Footprints size={14} />{:else}<Swords size={14} />{/if}
+                      </span>
+                      <span class="min-w-0"><span class="block truncate text-xs font-extrabold">{item.label}</span><span class="mt-0.5 block text-[0.58rem] font-semibold opacity-70">{weekItemStatus(item, day)}</span></span>
+                    </button>
+                  {/each}
+                </div>
+              {:else}
+                <div class="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted"><span class="h-px w-5 bg-black/10"></span><span>Riposo</span></div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <div class="border-t border-black/[0.05] bg-cream/70 px-5 py-3 text-center text-[0.65rem] leading-4 text-muted">Tocca un'attività di oggi o passata per registrarla. Le attività future si attiveranno nel giorno previsto.</div>
+      </section>
+
       {#if nextWorkout}
         <section class="card overflow-hidden bg-ink text-white">
           <div class="p-6 pb-5">
@@ -715,32 +802,6 @@
           </button>
         </section>
       {/if}
-
-      <section class="card overflow-hidden">
-        <div class="p-5"><p class="eyebrow">Attività complementari</p><div class="mt-1 flex items-end justify-between gap-3"><h2 class="text-xl font-bold tracking-[-0.03em]">Questa settimana</h2><p class="text-xs text-muted">Corsa · Wing Chun</p></div>{#if todayKey < wingChunStartDate()}<p class="mt-2 text-xs text-muted">Wing Chun previsto da <span class="capitalize">{formatDate(wingChunStartDate(), true)}</span>.</p>{/if}</div>
-        <div class="border-t border-black/[0.05]">
-          {#each activitiesThisWeek() as item}
-            {@const logged = activities[activityKey(item.date, item.type)]}
-            {@const future = item.date > todayKey}
-            <div class="flex items-center gap-3 border-b border-black/[0.05] p-3 last:border-0">
-              <button class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-1 text-left disabled:cursor-default" disabled={future} onclick={() => openActivity(item.date, item.type)}>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl {item.type === 'run' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}">
-                  {#if item.type === 'run'}<Footprints size={18} />{:else}<Swords size={18} />{/if}
-                </span>
-                <span class="min-w-0"><span class="block text-sm font-bold">{activityName(item.type)}</span><span class="mt-0.5 block text-xs capitalize text-muted">{formatDate(item.date)} · {item.type === 'run' ? 'mattina' : 'sera'}</span></span>
-              </button>
-              <button
-                class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-35 {logged?.completedAt ? 'bg-moss text-white' : 'border border-black/10 bg-white text-muted'}"
-                disabled={future || activitySaving}
-                onclick={() => logged?.completedAt ? openActivity(item.date, item.type) : quickCompleteActivity(item.date, item.type)}
-                aria-label={logged?.completedAt ? `Modifica ${activityName(item.type)}` : `Segna ${activityName(item.type)} come svolta`}
-              >{#if logged?.completedAt}<Check size={17} />{:else}<Plus size={17} />{/if}</button>
-            </div>
-          {:else}
-            <p class="p-5 text-sm text-muted">Le attività complementari inizieranno nella settimana del programma.</p>
-          {/each}
-        </div>
-      </section>
 
       <section class="grid grid-cols-2 gap-3">
         <div class="card p-5">
