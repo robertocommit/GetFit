@@ -12,7 +12,7 @@ export async function PUT({ request }) {
   const rpe = body.rpe === null || body.rpe === undefined ? null : Number(body.rpe);
   if ((durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes <= 0)) ||
       (distanceKm !== null && (!Number.isFinite(distanceKm) || distanceKm <= 0)) ||
-      (rpe !== null && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10))) {
+      (rpe !== null && (!Number.isInteger(rpe) || rpe < 1 || rpe > 4))) {
     return json({ error: 'Dettagli attività non validi' }, { status: 400 });
   }
 

@@ -226,8 +226,7 @@
       return;
     }
     if (item.future || activitySaving) return;
-    if (item.completed) openActivity(day.date, item.type);
-    else void quickCompleteActivity(day.date, item.type);
+    openActivity(day.date, item.type);
   }
 
   function newActivity(date: string, type: ActivityType): ActivityLog {
@@ -236,9 +235,9 @@
       type,
       completedAt: null,
       durationMinutes: null,
-      distanceKm: type === 'run' ? 1.2 : null,
+      distanceKm: type === 'run' ? 1.3 : null,
       rpe: null,
-      sprintCompleted: type === 'run',
+      sprintCompleted: false,
       notes: ''
     };
   }
@@ -265,11 +264,6 @@
     } finally {
       activitySaving = false;
     }
-  }
-
-  async function quickCompleteActivity(date: string, type: ActivityType) {
-    if (activities[activityKey(date, type)]?.completedAt || activitySaving) return;
-    if (await persistActivity(newActivity(date, type))) showToast(`${activityName(type)} registrata`);
   }
 
   async function saveActiveActivity() {
@@ -496,6 +490,11 @@
     const percentage = value === null ? 0 : ((value - 1) / 3) * 100;
     const color = level?.color ?? '#DDE2DC';
     return `background: linear-gradient(90deg, ${color} 0%, ${color} ${percentage}%, #DDE2DC ${percentage}%, #DDE2DC 100%)`;
+  }
+
+  function inputActivityEffort(event: Event) {
+    if (!activeActivity) return;
+    activeActivity.rpe = Math.max(1, Math.min(4, Number((event.currentTarget as HTMLInputElement).value)));
   }
 
   function updateSessionNumber(field: 'durationMinutes' | 'cardioMinutes', event: Event) {
@@ -1070,6 +1069,7 @@
 {/if}
 
 {#if activeActivity}
+  {@const activityEffortLevel = effortLevel(activeActivity.rpe)}
   <div class="fixed inset-0 z-[65] flex items-end justify-center bg-black/35 p-3 sm:items-center" role="presentation" onclick={(event) => event.currentTarget === event.target && (activeActivity = null)}>
     <form class="card max-h-[90vh] w-full max-w-md overflow-auto p-6" onsubmit={(event) => { event.preventDefault(); void saveActiveActivity(); }}>
       <div class="flex items-start justify-between gap-4">
@@ -1082,16 +1082,24 @@
         <button class="icon-button shrink-0" type="button" onclick={() => activeActivity = null} aria-label="Chiudi"><X size={19} /></button>
       </div>
 
-      <p class="mt-5 text-sm leading-6 text-muted">Compila solo quello che ti è utile. Salvare significa segnare l’attività come svolta.</p>
-      <div class="mt-5 grid grid-cols-2 gap-3">
-        <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" placeholder="—" value={activeActivity.durationMinutes ?? ''} oninput={(event) => activeActivity!.durationMinutes = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">min</span></span></label>
-        <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Intensità</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" max="10" placeholder="—" value={activeActivity.rpe ?? ''} oninput={(event) => activeActivity!.rpe = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">/10</span></span></label>
+      <p class="mt-5 text-sm leading-6 text-muted">{activeActivity.type === 'run' ? 'Giro standard · 1,3 km · scatto facoltativo negli ultimi 150 metri.' : 'Compila solo quello che ti è utile.'} Salvare significa segnare l’attività come svolta.</p>
+      <div class="mt-5">
+        <label class="block rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" placeholder="—" value={activeActivity.durationMinutes ?? ''} oninput={(event) => activeActivity!.durationMinutes = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">min</span></span></label>
+      </div>
+
+      <div class="mt-3 rounded-2xl bg-cream p-4">
+        <div class="flex items-center justify-between gap-3">
+          <span class="eyebrow">Intensità percepita</span>
+          <span class="rounded-full px-3 py-1.5 text-xs font-extrabold text-white shadow-sm" style={`background-color: ${activityEffortLevel?.color ?? '#6D786F'}`}>{activityEffortLevel ? `${activeActivity.rpe}/4 · ${activityEffortLevel.label}` : 'Scegli 1–4'}</span>
+        </div>
+        <input class="effort-range mt-4 w-full" style={effortTrackStyle(activeActivity.rpe)} type="range" min="1" max="4" step="1" value={activeActivity.rpe ?? 2} oninput={inputActivityEffort} aria-label={`Intensità percepita per ${activityName(activeActivity.type)}, da 1 a 4`} />
+        <p class="mt-3 text-center text-[0.65rem] font-semibold" style={`color: ${activityEffortLevel?.color ?? '#6D786F'}`}>{activityEffortLevel?.detail ?? 'Sposta la barra dopo aver finito'}</p>
       </div>
 
       {#if activeActivity.type === 'run'}
         <div class="mt-3 grid grid-cols-2 gap-3">
           <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Distanza</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="0.1" step="0.1" value={activeActivity.distanceKm ?? ''} oninput={(event) => activeActivity!.distanceKm = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">km</span></span></label>
-          <label class="flex cursor-pointer items-center justify-between gap-2 rounded-2xl bg-cream p-3"><span><span class="eyebrow">Finale veloce</span><span class="mt-1 block text-xs text-muted">200 metri</span></span><input class="h-5 w-5 accent-[#315B47]" type="checkbox" checked={activeActivity.sprintCompleted} onchange={(event) => activeActivity!.sprintCompleted = event.currentTarget.checked} /></label>
+          <label class="flex cursor-pointer items-center justify-between gap-2 rounded-2xl bg-cream p-3"><span><span class="eyebrow">Scatto finale</span><span class="mt-1 block text-xs text-muted">Ultimi 150 metri</span></span><input class="h-5 w-5 accent-[#315B47]" type="checkbox" checked={activeActivity.sprintCompleted} onchange={(event) => activeActivity!.sprintCompleted = event.currentTarget.checked} /></label>
         </div>
       {/if}
 

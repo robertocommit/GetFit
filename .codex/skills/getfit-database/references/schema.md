@@ -43,6 +43,7 @@ Current routing, verified 2026-08-30:
 - `activity_date`, `activity_type`
 - activity type: `run` or `wing_chun`
 - `duration_minutes`, `distance_km`, `rpe`, `sprint_completed`, `notes`
+- `rpe` is the perceived activity intensity on the same `1..4` scale used for exercise effort; null means it was not recorded.
 - `completed_at`, `created_at`, `updated_at`
 - unique key: `(activity_date, activity_type)`
 
