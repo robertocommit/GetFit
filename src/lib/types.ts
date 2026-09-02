@@ -27,6 +27,7 @@ export type Exercise = {
 };
 
 export type ExerciseGuide = {
+  illustrated?: boolean;
   equipment: string;
   setup: string;
   steps: string[];

@@ -1164,7 +1164,9 @@
 {#if activeGuide}
   {@const guideExercise = workouts[activeGuide.type].exercises[activeGuide.index]}
   {@const guide = exerciseGuides[activeGuide.exerciseId]}
-  {@const panelCount = workouts[activeGuide.type].exercises.length}
+  {@const illustratedExercises = workouts[activeGuide.type].exercises.filter((exercise) => exerciseGuides[exercise.id].illustrated !== false)}
+  {@const panelCount = illustratedExercises.length}
+  {@const panelIndex = illustratedExercises.findIndex((exercise) => exercise.id === guideExercise.id)}
   <div class="fixed inset-0 z-[55] overflow-y-auto bg-cream">
     <div class="mx-auto min-h-screen max-w-lg pb-10">
       <header class="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.05] bg-cream/95 px-5 py-4 backdrop-blur">
@@ -1174,16 +1176,18 @@
       </header>
 
       <main class="px-5 pt-5">
-        <div class="overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" style={`aspect-ratio: ${864 / (1821 / panelCount)}`}>
-          <div class="relative h-full w-full overflow-hidden">
-            <img
-              class="absolute left-0 top-0 h-auto w-full max-w-none"
-              style={`transform: translateY(-${activeGuide.index / panelCount * 100}%)`}
-              src={`/guides/workout-${activeGuide.type.toLowerCase()}.webp`}
-              alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`}
-            />
+        {#if guide.illustrated !== false}
+          <div class="overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" style={`aspect-ratio: ${864 / (1821 / panelCount)}`}>
+            <div class="relative h-full w-full overflow-hidden">
+              <img
+                class="absolute left-0 top-0 h-auto w-full max-w-none"
+                style={`transform: translateY(-${panelIndex / panelCount * 100}%)`}
+                src={`/guides/workout-${activeGuide.type.toLowerCase()}.webp`}
+                alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`}
+              />
+            </div>
           </div>
-        </div>
+        {/if}
 
         <p class="eyebrow mt-6">Seduta {activeGuide.type} · esercizio {activeGuide.index + 1}</p>
         <h1 class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{guideExercise.name}</h1>

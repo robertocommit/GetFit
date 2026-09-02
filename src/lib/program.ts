@@ -12,6 +12,7 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'lateral', name: 'Lateral raises', sets: 3, reps: '12–15', minReps: 12, maxReps: 15, startWeight: 5, unit: 'kg/mano', increment: 1 },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
       { id: 'carry', name: 'Farmer carry', sets: 4, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'dead-bug', name: 'Dead bug', sets: 2, reps: '30 sec', minReps: 30, startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Alterna lentamente braccio e gamba opposti mantenendo la zona lombare appoggiata.' },
       { id: 'neck-iso', name: 'Neck isometrics', sets: 2, reps: '20–30 sec/direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Solo pressione delicata contro la mano nel mese 1.' }
     ]
   },
@@ -27,6 +28,7 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'face-pull', name: 'Face pull', sets: 3, reps: '12–15', minReps: 12, maxReps: 15, startWeight: 15, unit: 'kg', increment: 5 },
       { id: 'shrug', name: 'Shrug con manubri', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 16, unit: 'kg/mano', increment: 2 },
       { id: 'dead-hang', name: 'Dead hang', sets: 3, reps: '20–40 sec', startWeight: null, unit: 'sec', increment: null, tracking: 'timed' },
+      { id: 'pallof-hold', name: 'Pallof hold', sets: 2, reps: '20 sec/lato', minReps: 20, startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Resisti alla rotazione con un cavo o una banda leggera; completa entrambi i lati in ogni tenuta.' },
       { id: 'neck-lateral', name: 'Neck lateral isometric', sets: 2, reps: '20 sec/lato', startWeight: null, unit: 'sec', increment: null, tracking: 'timed' }
     ]
   },
@@ -43,6 +45,7 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
       { id: 'pushdown', name: 'Triceps pushdown', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: null, unit: 'kg', increment: 5, note: 'Scegli un peso facile/moderato.' },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
       { id: 'carry', name: 'Farmer carry', sets: 3, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'side-plank', name: 'Side plank', sets: 2, reps: '20 sec/lato', minReps: 20, startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Completa entrambi i lati in ogni tenuta mantenendo bacino e spalle allineati.' },
       { id: 'neck', name: 'Mobilità del collo', sets: 2, reps: 'per direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'mobility', note: 'Movimenti leggeri per ogni direzione, senza carico.' }
     ]
   }
@@ -112,6 +115,16 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     feel: 'Presa, addome, parte alta della schiena e gambe.',
     mistakes: ['Inclinarsi su un lato', 'Fare passi troppo lunghi', 'Lasciare cadere i pesi'],
     alternative: 'Suitcase carry con un solo manubrio, alternando i lati.'
+  },
+  'dead-bug': {
+    illustrated: false,
+    equipment: 'Tappetino; non serve alcun carico.',
+    setup: 'Sdraiato sulla schiena, anche e ginocchia a 90°, braccia verso il soffitto e zona lombare aderente al tappetino.',
+    steps: ['Espira e avvicina delicatamente le costole al bacino.', 'Allunga lentamente un braccio e la gamba opposta senza inarcare la schiena.', 'Ritorna al centro e alterna i lati con controllo.'],
+    breathing: 'Espira durante ogni estensione; inspira tornando al centro.',
+    feel: 'Addome profondo e controllo del bacino, senza tensione nella zona lombare.',
+    mistakes: ['Inarcare la zona lombare', 'Muovere gli arti troppo velocemente', 'Allungare oltre il punto che riesci a controllare'],
+    alternative: 'Muovi soltanto le gambe o soltanto le braccia per ridurre la difficoltà.'
   },
   'neck-iso': {
     equipment: 'Solo la mano; nessuna macchina necessaria nel primo mese.',
@@ -187,6 +200,16 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     mistakes: ['Oscillare', 'Saltare giù dalla sbarra', 'Restare appeso oltre il controllo della presa'],
     alternative: 'Tenuta isometrica di due manubri pesanti.'
   },
+  'pallof-hold': {
+    illustrated: false,
+    equipment: 'Cavo regolabile o banda elastica fissata all’altezza del petto.',
+    setup: 'Mettiti di lato rispetto al punto di ancoraggio, piedi stabili e maniglia tenuta davanti al petto.',
+    steps: ['Allontanati finché senti una tensione leggera.', 'Distendi le braccia davanti a te senza lasciare ruotare il busto.', 'Mantieni la posizione, poi cambia lato.'],
+    breathing: 'Respira normalmente mantenendo addome e glutei attivi.',
+    feel: 'Addome e obliqui che impediscono al tronco di ruotare.',
+    mistakes: ['Usare una resistenza che fa ruotare il corpo', 'Inarcare la schiena', 'Trattenere il respiro'],
+    alternative: 'Pallof hold in ginocchio con una banda più leggera.'
+  },
   'neck-lateral': {
     equipment: 'Solo la mano; dal mese 2 eventualmente una banda leggerissima.',
     setup: 'Testa neutra e mano appoggiata sopra l’orecchio.',
@@ -215,6 +238,16 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     feel: 'Parte posteriore delle braccia, i tricipiti.',
     mistakes: ['Usare tutto il corpo', 'Aprire i gomiti', 'Lasciare risalire il peso di colpo'],
     alternative: 'Triceps extension alla macchina.'
+  },
+  'side-plank': {
+    illustrated: false,
+    equipment: 'Tappetino; non serve alcun carico.',
+    setup: 'Avambraccio sotto la spalla, gambe distese e piedi sovrapposti oppure sfalsati.',
+    steps: ['Solleva il bacino creando una linea tra testa, spalle, anche e piedi.', 'Mantieni il busto fermo senza ruotare in avanti.', 'Scendi con controllo e ripeti dall’altro lato.'],
+    breathing: 'Respira lentamente senza perdere la posizione.',
+    feel: 'Obliqui, gluteo laterale e spalla di appoggio.',
+    mistakes: ['Lasciare cadere il bacino', 'Spalla compressa verso l’orecchio', 'Ruotare il petto verso il pavimento'],
+    alternative: 'Appoggia il ginocchio inferiore a terra mantenendo il bacino sollevato.'
   },
   neck: {
     equipment: 'Mese 1: mano. Dal mese 2: banda molto leggera.',
