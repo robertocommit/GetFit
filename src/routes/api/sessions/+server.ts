@@ -41,14 +41,16 @@ export async function PUT({ request }) {
     const sessionId = session.rows[0].id;
     for (const [exerciseId, sets] of Object.entries(body.logs ?? {}) as [string, Record<string, unknown>[]][]) {
       for (const set of sets) {
+        const skipped = Boolean(set.skipped);
         const effort = Number(set.effort);
-        const normalizedEffort = Number.isInteger(effort) && effort >= 1 && effort <= 4 ? effort : null;
+        const normalizedEffort = !skipped && Number.isInteger(effort) && effort >= 1 && effort <= 4 ? effort : null;
         await client.query(
-          `INSERT INTO set_logs (session_id, exercise_id, set_number, reps, weight, effort, completed)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO set_logs (session_id, exercise_id, set_number, reps, weight, effort, completed, skipped)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (session_id, exercise_id, set_number) DO UPDATE SET
-           reps = EXCLUDED.reps, weight = EXCLUDED.weight, effort = EXCLUDED.effort, completed = EXCLUDED.completed`,
-          [sessionId, exerciseId, set.setNumber, set.reps, set.weight, normalizedEffort, Boolean(set.completed)]
+           reps = EXCLUDED.reps, weight = EXCLUDED.weight, effort = EXCLUDED.effort,
+           completed = EXCLUDED.completed, skipped = EXCLUDED.skipped`,
+          [sessionId, exerciseId, set.setNumber, set.reps, set.weight, normalizedEffort, Boolean(set.completed) && !skipped, skipped]
         );
       }
     }

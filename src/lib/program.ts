@@ -117,7 +117,7 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Suitcase carry con un solo manubrio, alternando i lati.'
   },
   'dead-bug': {
-    illustrated: false,
+    image: '/guides/dead-bug.webp',
     equipment: 'Tappetino; non serve alcun carico.',
     setup: 'Sdraiato sulla schiena, anche e ginocchia a 90°, braccia verso il soffitto e zona lombare aderente al tappetino.',
     steps: ['Espira e avvicina delicatamente le costole al bacino.', 'Allunga lentamente un braccio e la gamba opposta senza inarcare la schiena.', 'Ritorna al centro e alterna i lati con controllo.'],
@@ -201,7 +201,7 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Tenuta isometrica di due manubri pesanti.'
   },
   'pallof-hold': {
-    illustrated: false,
+    image: '/guides/pallof-hold.webp',
     equipment: 'Cavo regolabile o banda elastica fissata all’altezza del petto.',
     setup: 'Mettiti di lato rispetto al punto di ancoraggio, piedi stabili e maniglia tenuta davanti al petto.',
     steps: ['Allontanati finché senti una tensione leggera.', 'Distendi le braccia davanti a te senza lasciare ruotare il busto.', 'Mantieni la posizione, poi cambia lato.'],
@@ -240,7 +240,7 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Triceps extension alla macchina.'
   },
   'side-plank': {
-    illustrated: false,
+    image: '/guides/side-plank.webp',
     equipment: 'Tappetino; non serve alcun carico.',
     setup: 'Avambraccio sotto la spalla, gambe distese e piedi sovrapposti oppure sfalsati.',
     steps: ['Solleva il bacino creando una linea tra testa, spalle, anche e piedi.', 'Mantieni il busto fermo senza ruotare in avanti.', 'Scendi con controllo e ripeti dall’altro lato.'],

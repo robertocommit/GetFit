@@ -27,7 +27,7 @@ export type Exercise = {
 };
 
 export type ExerciseGuide = {
-  illustrated?: boolean;
+  image?: string;
   equipment: string;
   setup: string;
   steps: string[];
@@ -44,6 +44,7 @@ export type SetLog = {
   weight: number | null;
   effort: number | null;
   completed: boolean;
+  skipped: boolean;
 };
 
 export type Session = {

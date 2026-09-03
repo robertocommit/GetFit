@@ -31,10 +31,11 @@ Current routing, verified 2026-08-30:
 - `id`: primary key
 - `session_id`: foreign key to `workout_sessions`
 - `exercise_id`, `set_number`
-- `reps`, `weight`, `effort`
+- `reps`, `weight`, `effort`, `skipped`
 - `completed`
 - unique key: `(session_id, exercise_id, set_number)`
 - Perceived effort is constrained to `1..4`; the same exercise-level value is stored on every set. Null means it was not recorded.
+- `skipped` marks an exercise as deliberately excluded from that session; all of its set rows carry the same value.
 - The legacy `rir` column may still exist for backward compatibility but is no longer used by the application.
 
 ### `activity_logs`

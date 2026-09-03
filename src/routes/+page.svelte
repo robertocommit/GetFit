@@ -39,7 +39,8 @@
         reps: log.reps,
         weight: log.weight === null ? null : Number(log.weight),
         effort: log.effort,
-        completed: log.completed
+        completed: log.completed,
+        skipped: Boolean(log.skipped)
       });
     }
     return result;
@@ -368,7 +369,7 @@
 
   function latestLogs(exerciseId: string, beforeDate: string, type?: WorkoutType) {
     return Object.values(sessions)
-      .filter((session) => session.date < beforeDate && session.completedAt && (!type || session.type === type) && session.logs[exerciseId]?.length)
+      .filter((session) => session.date < beforeDate && session.completedAt && (!type || session.type === type) && session.logs[exerciseId]?.some((set) => set.completed))
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.logs[exerciseId];
   }
 
@@ -415,7 +416,8 @@
         reps: mode === 'strength' ? suggestedReps(exercise, previous, index) : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
         weight: mode === 'timed' || mode === 'mobility' ? null : weight,
         effort: null,
-        completed: false
+        completed: false,
+        skipped: false
       });
     }
     const serverSession: Session = {
@@ -511,8 +513,22 @@
   }
 
   function toggleSet(set: SetLog) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || set.skipped) return;
     set.completed = !set.completed;
+    queueAutoSave(0);
+  }
+
+  function toggleExerciseSkipped(exerciseId: string) {
+    if (!activeSession || activeSession.completedAt) return;
+    const logs = activeSession.logs[exerciseId];
+    const skipped = !logs.every((set) => set.skipped);
+    for (const set of logs) {
+      set.skipped = skipped;
+      if (skipped) {
+        set.completed = false;
+        set.effort = null;
+      }
+    }
     queueAutoSave(0);
   }
 
@@ -534,7 +550,7 @@
   }
 
   function sessionIsComplete(session: Session) {
-    return workouts[session.type].exercises.every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed));
+    return workouts[session.type].exercises.every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed || set.skipped));
   }
 
   async function saveSession(completeSession = false) {
@@ -693,7 +709,7 @@
 
   function exerciseHistory(exerciseId: string, beforeDate: string) {
     return Object.values(sessions)
-      .filter((session) => session.completedAt && session.date < beforeDate && session.logs[exerciseId]?.length)
+      .filter((session) => session.completedAt && session.date < beforeDate && session.logs[exerciseId]?.some((set) => set.completed))
       .sort((a, b) => b.date.localeCompare(a.date));
   }
 
@@ -720,7 +736,7 @@
   }
 
   function sessionHasData(session: Session) {
-    return Boolean(session.completedAt || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed));
+    return Boolean(session.completedAt || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed || set.skipped));
   }
 </script>
 
@@ -969,18 +985,21 @@
           {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
             {@const exerciseMode = modeFor(exercise)}
             {@const exerciseLogs = activeSession.logs[exercise.id]}
+            {@const exerciseSkipped = exerciseLogs.every((set) => set.skipped)}
             {@const exerciseEffort = exerciseLogs[0]?.effort ?? null}
             {@const exerciseEffortLevel = effortLevel(exerciseEffort)}
-            <section class="card overflow-hidden">
+            <section class="card overflow-hidden {exerciseSkipped ? 'opacity-70' : ''}">
               <div class="flex items-start justify-between gap-3 p-5 pb-3">
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
-                <div class="flex shrink-0 items-center gap-2">
+                <div class="flex max-w-[12rem] shrink-0 flex-wrap items-center justify-end gap-2">
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
+                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
                   <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
                 </div>
               </div>
               {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
+              {#if exerciseSkipped}<p class="mx-4 mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">Escluso volontariamente da questa seduta. Tocca ↻ per ripristinarlo.</p>{/if}
               <div class="border-t border-black/[0.05] p-4">
                 {#if exerciseMode === 'strength'}
                   <p class="eyebrow mb-2">Uguale per tutte le serie</p>
@@ -988,17 +1007,17 @@
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Peso · {exercise.unit}</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Ripetizioni</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                   </div>
@@ -1007,7 +1026,7 @@
                       <div><span class="block text-xs font-extrabold text-ink">Quanto ti ha affaticato?</span><span class="mt-0.5 block text-[0.68rem] text-muted">Un solo valore per tutto l'esercizio</span></div>
                       <span class="rounded-full px-3 py-1.5 text-xs font-extrabold text-white shadow-sm" style={`background-color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel ? `${exerciseEffort}/4 · ${exerciseEffortLevel.label}` : 'Scegli 1–4'}</span>
                     </div>
-                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt)} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
+                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
                     <div class="mt-2 grid grid-cols-4 text-center text-[0.58rem] font-bold leading-3 text-muted"><span>1<br />Leggero</span><span>2<br />Giusto</span><span>3<br />Duro</span><span>4<br />Al limite</span></div>
                     <p class="mt-3 text-center text-[0.65rem] font-semibold" style={`color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel?.detail ?? 'Sposta la barra dopo aver finito l’esercizio'}</p>
                   </div>
@@ -1015,15 +1034,15 @@
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
                     <div class="mx-auto mt-1 flex max-w-48 items-center gap-1">
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
-                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt)} onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
+                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
                     </div>
                   </div>
                 {:else if exerciseMode === 'carry'}
                   <label class="block rounded-2xl bg-cream p-3">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Carico facoltativo · {exercise.unit}</span>
-                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
+                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
                   </label>
                 {:else}
                   <p class="rounded-2xl bg-cream p-3 text-center text-sm text-muted">Nessun peso o numero di ripetizioni da inserire.</p>
@@ -1031,7 +1050,7 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
                       {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>
@@ -1044,7 +1063,7 @@
 
         {#if sessionIsComplete(activeSession) && !activeSession.completedAt}
           <section class="mt-4 rounded-[1.75rem] bg-moss p-5 text-white" aria-live="polite">
-            <div class="flex items-center gap-3"><span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Tutte le attività sono complete</h2><p class="mt-1 text-xs leading-5 text-white/75">Aggiungi qui sotto eventuali tempi e note, poi chiudi la seduta.</p></div></div>
+            <div class="flex items-center gap-3"><span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta pronta per la chiusura</h2><p class="mt-1 text-xs leading-5 text-white/75">Le attività svolte sono complete; quelle escluse restano indicate come tali. Aggiungi eventuali tempi e note, poi chiudi.</p></div></div>
           </section>
         {/if}
 
@@ -1164,7 +1183,7 @@
 {#if activeGuide}
   {@const guideExercise = workouts[activeGuide.type].exercises[activeGuide.index]}
   {@const guide = exerciseGuides[activeGuide.exerciseId]}
-  {@const illustratedExercises = workouts[activeGuide.type].exercises.filter((exercise) => exerciseGuides[exercise.id].illustrated !== false)}
+  {@const illustratedExercises = workouts[activeGuide.type].exercises.filter((exercise) => !exerciseGuides[exercise.id].image)}
   {@const panelCount = illustratedExercises.length}
   {@const panelIndex = illustratedExercises.findIndex((exercise) => exercise.id === guideExercise.id)}
   <div class="fixed inset-0 z-[55] overflow-y-auto bg-cream">
@@ -1176,7 +1195,9 @@
       </header>
 
       <main class="px-5 pt-5">
-        {#if guide.illustrated !== false}
+        {#if guide.image}
+          <img class="w-full rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" src={guide.image} alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`} />
+        {:else}
           <div class="overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" style={`aspect-ratio: ${864 / (1821 / panelCount)}`}>
             <div class="relative h-full w-full overflow-hidden">
               <img
