@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Flame, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
@@ -958,12 +958,6 @@
         </div>
       </section>
 
-      <section class="card p-5">
-        <div class="flex gap-4">
-          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime/50"><CircleHelp size={19} /></span>
-          <div><p class="font-bold">Regola di oggi</p><p class="mt-1 text-sm leading-6 text-muted">{currentTheme.text} Tecnica prima di ripetizioni e peso.</p></div>
-        </div>
-      </section>
     </main>
   {:else if tab === 'calendar'}
     <main class="px-5">
