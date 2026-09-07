@@ -2,15 +2,15 @@
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Dumbbell, Flame, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
-  import type { ActivityLog, ActivityType, Exercise, Session, SetLog, WorkoutType } from '$lib/types';
+  import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
 
   let { data, initialWorkoutDate = null } = $props<{ data: any; initialWorkoutDate?: string | null }>();
-  type ContributionStatus = 'outside' | 'rest' | 'completed' | 'partial' | 'missed' | 'scheduled';
-  type ContributionMarker = { label: string; name: string; status: 'completed' | 'missed' | 'scheduled' };
+  type ContributionStatus = 'outside' | 'rest' | 'completed' | 'partial' | 'missed' | 'skipped' | 'scheduled';
+  type ContributionMarker = { label: string; name: string; status: 'completed' | 'missed' | 'skipped' | 'scheduled'; detail?: string };
   type ContributionDay = { date: string; status: ContributionStatus; markers: ContributionMarker[] };
   type WeekItem =
-    | { kind: 'workout'; type: WorkoutType; label: string; completed: boolean; future: boolean; missed: boolean }
-    | { kind: 'activity'; type: ActivityType; label: string; completed: boolean; future: boolean; missed: boolean };
+    | { kind: 'workout'; type: WorkoutType; label: string; completed: boolean; future: boolean; missed: boolean; skipped: boolean; skipReason: SkipReason | null }
+    | { kind: 'activity'; type: ActivityType; label: string; completed: boolean; future: boolean; missed: boolean; skipped: boolean; skipReason: SkipReason | null };
   type WeekDay = { date: string; dayLabel: string; dateLabel: string; today: boolean; items: WeekItem[] };
 
   function initialStartDate() {
@@ -24,6 +24,8 @@
         date: row.workout_date,
         type: row.workout_type,
         completedAt: row.completed_at,
+        skippedReason: row.skipped_reason ?? null,
+        skippedAt: row.skipped_at ?? null,
         durationMinutes: row.duration_minutes,
         cardioMinutes: row.cardio_minutes,
         notes: row.notes,
@@ -53,6 +55,8 @@
         date: row.activity_date,
         type: row.activity_type,
         completedAt: row.completed_at,
+        skippedReason: row.skipped_reason ?? null,
+        skippedAt: row.skipped_at ?? null,
         durationMinutes: row.duration_minutes,
         distanceKm: row.distance_km === null ? null : Number(row.distance_km),
         rpe: row.rpe,
@@ -69,6 +73,11 @@
   let activeSession = $state<Session | null>(null);
   let saving = $state(false);
   let finishing = $state(false);
+  let workoutSkipping = $state(false);
+
+  function skipReasonLabel(reason: SkipReason | null | undefined) {
+    return reason === 'forza_maggiore' ? 'Causa maggiore' : reason === 'pigrizia' ? 'Pigrizia' : '';
+  }
   let sessionStartedAt = $state<number | null>(null);
   let elapsedSeconds = $state(0);
   let autoSaveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
@@ -92,6 +101,10 @@
   let plan = $derived(schedule(startDate));
   let dueWorkouts = $derived(plan.filter((item) => item.date <= todayKey));
   let completedDueCount = $derived(dueWorkouts.filter((item) => sessions[item.date]?.completedAt).length);
+  let skippedDueCount = $derived(dueWorkouts.filter((item) => !sessions[item.date]?.completedAt && sessions[item.date]?.skippedReason).length);
+  let skippedDueForza = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'forza_maggiore').length);
+  let skippedDuePigrizia = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'pigrizia').length);
+  let skippedActivitiesCount = $derived(Object.values(activities).filter((activity) => activity.skippedReason && !activity.completedAt && activity.date >= activityTrackingStart() && activity.date <= todayKey).length);
   let currentMonth = $derived(monthNumber(startDate, todayKey));
   let currentTheme = $derived(monthThemes[currentMonth - 1]);
   let nextWorkout = $derived(plan.find((item) => item.date >= todayKey && !sessions[item.date]?.completedAt) ?? plan.at(-1));
@@ -189,11 +202,13 @@
       const items: WeekItem[] = [];
       if (workout) {
         const completed = Boolean(sessions[date]?.completedAt);
-        items.push({ kind: 'workout', type: workout.type, label: `Palestra ${workout.type}`, completed, future, missed: !completed && date < todayKey });
+        const skipped = !completed && Boolean(sessions[date]?.skippedReason);
+        items.push({ kind: 'workout', type: workout.type, label: `Palestra ${workout.type}`, completed, future, missed: !completed && !skipped && date < todayKey, skipped, skipReason: sessions[date]?.skippedReason ?? null });
       }
       for (const type of supplementalTypesForDate(date)) {
         const completed = Boolean(activities[activityKey(date, type)]?.completedAt);
-        items.push({ kind: 'activity', type, label: activityName(type), completed, future, missed: !completed && date < todayKey });
+        const skipped = !completed && Boolean(activities[activityKey(date, type)]?.skippedReason);
+        items.push({ kind: 'activity', type, label: activityName(type), completed, future, missed: !completed && !skipped && date < todayKey, skipped, skipReason: activities[activityKey(date, type)]?.skippedReason ?? null });
       }
       return {
         date,
@@ -216,6 +231,7 @@
 
   function weekItemStatus(item: WeekItem, day: WeekDay) {
     if (item.completed) return 'Completata';
+    if (item.skipped) return `Saltata · ${skipReasonLabel(item.skipReason)}`;
     if (item.missed) return 'Da recuperare';
     if (day.today) return 'Oggi';
     return 'Prevista';
@@ -235,6 +251,8 @@
       date,
       type,
       completedAt: null,
+      skippedReason: null,
+      skippedAt: null,
       durationMinutes: null,
       distanceKm: type === 'run' ? 1.3 : null,
       rpe: null,
@@ -255,7 +273,7 @@
       });
       if (!response.ok) throw new Error('Salvataggio non riuscito');
       const result = await response.json();
-      const saved = { ...activity, completedAt: result.completedAt };
+      const saved = { ...activity, completedAt: result.completedAt ?? null, skippedReason: result.skippedReason ?? null, skippedAt: result.skippedAt ?? null };
       activities[activityKey(saved.date, saved.type)] = saved;
       activities = { ...activities };
       return true;
@@ -269,14 +287,38 @@
 
   async function saveActiveActivity() {
     if (!activeActivity || activitySaving) return;
+    activeActivity.skippedReason = null;
+    activeActivity.skippedAt = null;
     if (await persistActivity(activeActivity)) {
       activeActivity = null;
       showToast('Attività aggiornata');
     }
   }
 
+  async function skipActiveActivity(reason: SkipReason) {
+    if (!activeActivity || activitySaving || activeActivity.completedAt) return;
+    activitySaving = true;
+    try {
+      const response = await fetch('/api/activities', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ date: activeActivity.date, type: activeActivity.type, notes: activeActivity.notes, skippedReason: reason })
+      });
+      if (!response.ok) throw new Error('Salvataggio non riuscito');
+      const result = await response.json();
+      activeActivity = { ...activeActivity, completedAt: null, skippedReason: result.skippedReason ?? reason, skippedAt: result.skippedAt ?? null };
+      activities[activityKey(activeActivity.date, activeActivity.type)] = { ...activeActivity };
+      activities = { ...activities };
+      showToast(`Attività saltata · ${skipReasonLabel(reason)}`);
+    } catch {
+      showToast('Attività non salvata');
+    } finally {
+      activitySaving = false;
+    }
+  }
+
   async function removeActiveActivity() {
-    if (!activeActivity?.completedAt || activitySaving) return;
+    if (!activeActivity || activitySaving || (!activeActivity.completedAt && !activeActivity.skippedReason)) return;
+    const wasSkipped = !activeActivity.completedAt && Boolean(activeActivity.skippedReason);
     activitySaving = true;
     try {
       const response = await fetch('/api/activities', {
@@ -287,7 +329,7 @@
       delete activities[activityKey(activeActivity.date, activeActivity.type)];
       activities = { ...activities };
       activeActivity = null;
-      showToast('Registrazione rimossa');
+      showToast(wasSkipped ? 'Rimessa in programma' : 'Registrazione rimossa');
     } catch {
       showToast('Impossibile rimuovere l’attività');
     } finally {
@@ -423,6 +465,8 @@
     const serverSession: Session = {
       date, type, logs,
       completedAt: existing?.completedAt ?? null,
+      skippedReason: existing?.skippedReason ?? null,
+      skippedAt: existing?.skippedAt ?? null,
       durationMinutes: existing?.durationMinutes ?? null,
       cardioMinutes: existing?.cardioMinutes ?? null,
       notes: existing?.notes ?? ''
@@ -441,7 +485,7 @@
   }
 
   function startWorkout() {
-    if (!activeSession || sessionStartedAt !== null) return;
+    if (!activeSession || sessionStartedAt !== null || activeSession.skippedReason) return;
     sessionStartedAt = Date.now();
     elapsedSeconds = 0;
     try {
@@ -452,12 +496,87 @@
   }
 
   function applyToAll(exerciseId: string, field: 'reps' | 'weight' | 'effort', value: number | null) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     for (const set of activeSession.logs[exerciseId]) set[field] = value;
   }
 
+  function setUnitLabel(exercise: Exercise) {
+    const mode = exercise.tracking ?? 'strength';
+    return mode === 'carry' ? 'giro' : mode === 'timed' ? 'tenuta' : mode === 'mobility' ? 'sequenza' : 'serie';
+  }
+
+  function addSet(exerciseId: string) {
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
+    const logs = activeSession.logs[exerciseId];
+    if (!logs) return;
+    const template = logs.at(-1) ?? logs[0];
+    logs.push({
+      setNumber: logs.length + 1,
+      reps: template?.reps ?? null,
+      weight: template?.weight ?? null,
+      effort: null,
+      completed: false,
+      skipped: false
+    });
+    queueAutoSave();
+  }
+
+  function removeAddedSet(exerciseId: string, plannedSets: number) {
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
+    const logs = activeSession.logs[exerciseId];
+    if (!logs || logs.length <= plannedSets) return;
+    logs.pop();
+    queueAutoSave();
+  }
+
+  async function skipActiveWorkout(reason: SkipReason) {
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason || workoutSkipping) return;
+    workoutSkipping = true;
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...cloneSession(activeSession), completed: false, skippedReason: reason })
+      });
+      if (!response.ok) throw new Error('Salvataggio non riuscito');
+      const result = await response.json();
+      activeSession.skippedReason = result.skippedReason ?? reason;
+      activeSession.skippedAt = result.skippedAt ?? null;
+      activeSession.completedAt = null;
+      clearDraft(activeSession.date);
+      sessions[activeSession.date] = cloneSession(activeSession);
+      sessions = { ...sessions };
+      showToast(`Seduta saltata · ${skipReasonLabel(reason)}`);
+    } catch {
+      showToast('Salvataggio non riuscito');
+    } finally {
+      workoutSkipping = false;
+    }
+  }
+
+  async function unskipActiveWorkout() {
+    if (!activeSession || activeSession.completedAt || !activeSession.skippedReason || workoutSkipping) return;
+    workoutSkipping = true;
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...cloneSession(activeSession), completed: false, skippedReason: null })
+      });
+      if (!response.ok) throw new Error('Salvataggio non riuscito');
+      activeSession.skippedReason = null;
+      activeSession.skippedAt = null;
+      sessions[activeSession.date] = cloneSession(activeSession);
+      sessions = { ...sessions };
+      queueAutoSave(0);
+      showToast('Seduta rimessa da fare');
+    } catch {
+      showToast('Salvataggio non riuscito');
+    } finally {
+      workoutSkipping = false;
+    }
+  }
+
   function adjustAll(exerciseId: string, field: 'reps' | 'weight', amount: number) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     const current = activeSession.logs[exerciseId][0]?.[field] ?? 0;
     applyToAll(exerciseId, field, Math.max(0, Math.round((current + amount) * 100) / 100));
     queueAutoSave();
@@ -470,7 +589,7 @@
   }
 
   function inputEffortForAll(exerciseId: string, event: Event) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     const value = Math.max(1, Math.min(4, Number((event.currentTarget as HTMLInputElement).value)));
     applyToAll(exerciseId, 'effort', value);
     queueAutoSave();
@@ -500,26 +619,26 @@
   }
 
   function updateSessionNumber(field: 'durationMinutes' | 'cardioMinutes', event: Event) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     const raw = (event.currentTarget as HTMLInputElement).value;
     activeSession[field] = raw === '' ? null : Number(raw);
     queueAutoSave();
   }
 
   function updateSessionNotes(event: Event) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     activeSession.notes = (event.currentTarget as HTMLTextAreaElement).value;
     queueAutoSave();
   }
 
   function toggleSet(set: SetLog) {
-    if (!activeSession || activeSession.completedAt || set.skipped) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason || set.skipped) return;
     set.completed = !set.completed;
     queueAutoSave(0);
   }
 
   function toggleExerciseSkipped(exerciseId: string) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     const logs = activeSession.logs[exerciseId];
     const skipped = !logs.every((set) => set.skipped);
     for (const set of logs) {
@@ -537,7 +656,7 @@
   }
 
   function queueAutoSave(delay = 550) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     pendingChanges = true;
     autoSaveStatus = 'pending';
     if (!sessionIsComplete(activeSession)) activeSession.completedAt = null;
@@ -554,7 +673,7 @@
   }
 
   async function saveSession(completeSession = false) {
-    if (!activeSession || activeSession.completedAt) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     if (saving) {
       pendingChanges = true;
       return savePromise ?? undefined;
@@ -614,7 +733,7 @@
   }
 
   async function finishWorkout() {
-    if (!activeSession || activeSession.completedAt || !sessionIsComplete(activeSession) || finishing) return;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason || !sessionIsComplete(activeSession) || finishing) return;
     finishing = true;
     if (saving && savePromise) await savePromise;
     await saveSession(true);
@@ -670,26 +789,34 @@
         day.setDate(day.getDate() + index);
         const date = localKey(day);
         const workout = plan.find((item) => item.date === date);
-        const markerStatus = (completed: boolean): 'completed' | 'missed' | 'scheduled' => completed ? 'completed' : date < todayKey ? 'missed' : 'scheduled';
+        const markerStatus = (completed: boolean, skipped: boolean): 'completed' | 'missed' | 'skipped' | 'scheduled' => completed ? 'completed' : skipped ? 'skipped' : date < todayKey ? 'missed' : 'scheduled';
         const markers: ContributionMarker[] = [];
-        if (workout) markers.push({ label: workout.type, name: `Palestra ${workout.type}`, status: markerStatus(Boolean(sessions[date]?.completedAt)) });
+        if (workout) {
+          const skippedReason = sessions[date]?.skippedReason ?? null;
+          markers.push({ label: workout.type, name: `Palestra ${workout.type}`, status: markerStatus(Boolean(sessions[date]?.completedAt), Boolean(skippedReason)), detail: skippedReason ? skipReasonLabel(skippedReason) : undefined });
+        }
         for (const type of supplementalTypesForDate(date)) {
+          const skippedReason = activities[activityKey(date, type)]?.skippedReason ?? null;
           markers.push({
             label: type === 'run' ? 'R' : 'W',
             name: activityName(type),
-            status: markerStatus(Boolean(activities[activityKey(date, type)]?.completedAt))
+            status: markerStatus(Boolean(activities[activityKey(date, type)]?.completedAt), Boolean(skippedReason)),
+            detail: skippedReason ? skipReasonLabel(skippedReason) : undefined
           });
         }
         const completedCount = markers.filter((marker) => marker.status === 'completed').length;
+        const skippedCount = markers.filter((marker) => marker.status === 'skipped').length;
         const status: ContributionStatus = date < activityTrackingStart()
           ? 'outside'
           : !markers.length
             ? 'rest'
             : markers.every((marker) => marker.status === 'completed')
               ? 'completed'
-              : completedCount > 0
-                ? 'partial'
-                : markers.some((marker) => marker.status === 'missed') ? 'missed' : 'scheduled';
+              : markers.every((marker) => marker.status === 'completed' || marker.status === 'skipped')
+                ? completedCount > 0 ? 'partial' : 'skipped'
+                : completedCount > 0 || skippedCount > 0
+                  ? 'partial'
+                  : markers.some((marker) => marker.status === 'missed') ? 'missed' : 'scheduled';
         return { date, status, markers };
       });
       const dueMarkers = days.flatMap((day) => day.date <= todayKey ? day.markers : []);
@@ -703,7 +830,7 @@
   }
 
   function contributionTitle(day: ContributionDay) {
-    const details = day.markers.map((marker) => `${marker.name}: ${marker.status === 'completed' ? 'completata' : marker.status === 'missed' ? 'da recuperare' : 'programmata'}`);
+    const details = day.markers.map((marker) => `${marker.name}: ${marker.status === 'completed' ? 'completata' : marker.status === 'missed' ? 'da recuperare' : marker.status === 'skipped' ? `saltata${marker.detail ? ` · ${marker.detail}` : ''}` : 'programmata'}`);
     return `${formatDate(day.date, true)}${details.length ? ` · ${details.join(' · ')}` : ' · Riposo'}`;
   }
 
@@ -736,7 +863,7 @@
   }
 
   function sessionHasData(session: Session) {
-    return Boolean(session.completedAt || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed || set.skipped));
+    return Boolean(session.completedAt || session.skippedReason || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed || set.skipped));
   }
 </script>
 
@@ -778,13 +905,13 @@
                 <div class="flex min-w-0 flex-1 flex-wrap gap-2">
                   {#each day.items as item}
                     <button
-                      class="flex min-h-10 min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left transition active:scale-[0.98] disabled:cursor-default {item.completed ? 'border-moss bg-moss text-white' : item.missed ? 'border-amber-200 bg-amber-50 text-amber-800' : day.today ? 'border-moss/20 bg-lime/40 text-ink' : 'border-black/[0.06] bg-cream text-muted'}"
+                      class="flex min-h-10 min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left transition active:scale-[0.98] disabled:cursor-default {item.completed ? 'border-moss bg-moss text-white' : item.skipped ? 'border-dashed border-black/15 bg-black/[0.03] text-muted' : item.missed ? 'border-amber-200 bg-amber-50 text-amber-800' : day.today ? 'border-moss/20 bg-lime/40 text-ink' : 'border-black/[0.06] bg-cream text-muted'}"
                       disabled={item.kind === 'activity' && (item.future || activitySaving)}
                       onclick={() => openWeekItem(day, item)}
                       aria-label={`${item.label}: ${weekItemStatus(item, day)}`}
                     >
                       <span class="grid h-7 w-7 shrink-0 place-items-center rounded-xl {item.completed ? 'bg-white/15' : 'bg-white'}">
-                        {#if item.completed}<Check size={14} />{:else if item.kind === 'workout'}<Dumbbell size={14} />{:else if item.type === 'run'}<Footprints size={14} />{:else}<Swords size={14} />{/if}
+                        {#if item.completed}<Check size={14} />{:else if item.skipped}<X size={14} />{:else if item.kind === 'workout'}<Dumbbell size={14} />{:else if item.type === 'run'}<Footprints size={14} />{:else}<Swords size={14} />{/if}
                       </span>
                       <span class="min-w-0"><span class="block truncate text-xs font-extrabold">{item.label}</span><span class="mt-0.5 block text-[0.58rem] font-semibold opacity-70">{weekItemStatus(item, day)}</span></span>
                     </button>
@@ -847,6 +974,7 @@
       <div class="mt-7 space-y-3">
         {#each plan as item, index}
           {@const complete = Boolean(sessions[item.date]?.completedAt)}
+          {@const skippedReason = sessions[item.date]?.skippedReason ?? null}
           {@const past = item.date < todayKey}
           {@const month = monthNumber(startDate, item.date)}
           {#if index === 0 || monthNumber(startDate, plan[index - 1].date) !== month}
@@ -858,7 +986,7 @@
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl {complete ? 'bg-moss text-white' : 'bg-cream'}">
               {#if complete}<LockKeyhole size={19} />{:else}<span class="font-extrabold">{item.type}</span>{/if}
             </span>
-            <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(item.date, true)}</span><span class="mt-0.5 block truncate text-xs text-muted">{workouts[item.type].focus}</span></span>
+            <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(item.date, true)}</span><span class="mt-0.5 block truncate text-xs text-muted">{workouts[item.type].focus}</span><span class="mt-0.5 block text-[0.62rem] font-bold uppercase tracking-wider {complete ? 'text-moss' : skippedReason ? 'text-muted' : past ? 'text-amber-700' : 'text-muted'}">{complete ? 'Completata' : skippedReason ? `Saltata · ${skipReasonLabel(skippedReason)}` : past ? 'Da recuperare' : 'Prevista'}</span></span>
             <ChevronRight size={19} class="text-muted" />
           </button>
         {/each}
@@ -872,6 +1000,7 @@
       <section class="card mt-7 p-6">
         <div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Sedute svolte</p><p class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{completedDueCount} <span class="text-xl text-muted">su {dueWorkouts.length}</span></p></div><p class="rounded-full bg-lime/40 px-3 py-1.5 text-sm font-bold">{progressPercent}%</p></div>
         <p class="mt-3 text-xs leading-5 text-muted">Percentuale delle sedute programmate fino a oggi che hai completato interamente.</p>
+        {#if skippedDueCount > 0}<p class="mt-1 text-xs leading-5 text-muted">Saltate: {skippedDueCount} ({skippedDueForza} per causa maggiore · {skippedDuePigrizia} per pigrizia).</p>{/if}
         <div class="mt-7">
           <div class="grid items-center gap-1.5" style="grid-template-columns: 4.5rem repeat(7, minmax(0, 1fr));">
             <span></span>
@@ -885,7 +1014,7 @@
                 <div class="min-w-0"><p class="truncate text-[0.65rem] font-bold capitalize">{week.label}</p><p class="text-[0.58rem] text-muted">{week.done}/{week.planned} fatte</p></div>
                 {#each week.days as day}
                   <div
-                    class="flex aspect-square min-w-0 flex-wrap items-center justify-center gap-0.5 rounded-lg px-0.5 text-[0.5rem] font-extrabold leading-none {day.status === 'completed' ? 'bg-moss text-white' : day.status === 'partial' ? 'bg-lime text-ink' : day.status === 'missed' ? 'bg-amber-100 text-amber-800' : day.status === 'scheduled' ? 'border border-moss/20 bg-lime/30 text-moss' : day.status === 'rest' ? 'bg-black/[0.045] text-transparent' : 'bg-transparent text-transparent'}"
+                    class="flex aspect-square min-w-0 flex-wrap items-center justify-center gap-0.5 rounded-lg px-0.5 text-[0.5rem] font-extrabold leading-none {day.status === 'completed' ? 'bg-moss text-white' : day.status === 'partial' ? 'bg-lime text-ink' : day.status === 'missed' ? 'bg-amber-100 text-amber-800' : day.status === 'skipped' ? 'bg-black/[0.07] text-muted' : day.status === 'scheduled' ? 'border border-moss/20 bg-lime/30 text-moss' : day.status === 'rest' ? 'bg-black/[0.045] text-transparent' : 'bg-transparent text-transparent'}"
                     title={contributionTitle(day)}
                     aria-label={contributionTitle(day)}
                   >{#each day.markers as marker}<span>{marker.label}</span>{:else}<span>·</span>{/each}</div>
@@ -897,6 +1026,7 @@
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-moss"></span>Completata</span>
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-lime"></span>Parziale</span>
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-amber-100"></span>Da recuperare</span>
+            <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-black/[0.07]"></span>Saltata</span>
             <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded border border-moss/20 bg-lime/30"></span>Programmata</span>
           </div>
         </div>
@@ -916,6 +1046,7 @@
           <div><p class="text-2xl font-extrabold tracking-[-0.05em]">{totalRunDistance}</p><p class="mt-1 text-[0.65rem] text-muted">km registrati</p></div>
           <div><p class="text-2xl font-extrabold tracking-[-0.05em]">{completedWingChun}</p><p class="mt-1 text-[0.65rem] text-muted">Wing Chun</p></div>
         </div>
+        {#if skippedActivitiesCount > 0}<p class="mt-3 text-xs leading-5 text-muted">Attività complementari saltate: {skippedActivitiesCount}.</p>{/if}
       </section>
 
       <section class="mt-7">
@@ -924,7 +1055,7 @@
           {#each Object.values(sessions).filter(sessionHasData).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8) as session}
             <button class="card flex w-full items-center gap-4 p-4 text-left" onclick={() => openWorkout(session.date, session.type)}>
               <span class="grid h-11 w-11 place-items-center rounded-2xl {session.completedAt ? 'bg-moss text-white' : 'bg-lime/40 text-ink'} font-bold">{session.type}</span>
-              <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(session.date)}</span><span class="mt-0.5 block truncate text-xs text-muted">{Object.values(session.logs).flat().filter((s) => s.completed).length} serie completate{session.durationMinutes ? ` · ${session.durationMinutes} min totali` : ''}{session.cardioMinutes ? ` · ${session.cardioMinutes} min cardio` : ''}</span><span class="mt-1 block text-[0.62rem] font-bold uppercase tracking-wider {session.completedAt ? 'text-moss' : 'text-muted'}">{session.completedAt ? 'Completata' : 'In corso'}</span></span>
+              <span class="min-w-0 flex-1"><span class="block capitalize font-bold">{formatDate(session.date)}</span><span class="mt-0.5 block truncate text-xs text-muted">{Object.values(session.logs).flat().filter((s) => s.completed).length} serie completate{session.durationMinutes ? ` · ${session.durationMinutes} min totali` : ''}{session.cardioMinutes ? ` · ${session.cardioMinutes} min cardio` : ''}</span><span class="mt-1 block text-[0.62rem] font-bold uppercase tracking-wider {session.completedAt ? 'text-moss' : 'text-muted'}">{session.completedAt ? 'Completata' : session.skippedReason ? `Saltata · ${skipReasonLabel(session.skippedReason)}` : 'In corso'}</span></span>
               <ChevronRight size={18} class="text-muted" />
             </button>
           {:else}
@@ -970,7 +1101,16 @@
           </section>
         {/if}
 
-        {#if !activeSession.completedAt && !sessionIsComplete(activeSession)}
+        {#if activeSession.skippedReason && !activeSession.completedAt}
+          <section class="mt-6 rounded-[1.75rem] bg-black/[0.04] p-5">
+            <div class="flex items-center gap-3"><span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-muted"><X size={19} /></span><div><h2 class="font-bold">Seduta saltata · {skipReasonLabel(activeSession.skippedReason)}</h2>{#if activeSession.notes.trim()}<p class="mt-1 text-xs leading-5 text-muted">{activeSession.notes}</p>{/if}</div></div>
+            <button class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3 font-bold text-white transition active:scale-[0.99] disabled:opacity-60" disabled={workoutSkipping} onclick={unskipActiveWorkout}>
+              {#if workoutSkipping}<LoaderCircle class="animate-spin" size={17} /> Attendi…{:else}<RotateCcw size={17} /> Rimettimi in programma{/if}
+            </button>
+          </section>
+        {/if}
+
+        {#if !activeSession.completedAt && !activeSession.skippedReason && !sessionIsComplete(activeSession)}
           {#if sessionStartedAt === null}
             <button class="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink py-4 font-bold text-white shadow-card transition active:scale-[0.99]" onclick={startWorkout}><Play size={18} fill="currentColor" /> Inizia allenamento</button>
           {:else}
@@ -993,7 +1133,7 @@
                 <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
                 <div class="flex max-w-[12rem] shrink-0 flex-wrap items-center justify-end gap-2">
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
-                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
+                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
                   <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
                 </div>
@@ -1007,17 +1147,17 @@
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Peso · {exercise.unit}</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? -1 : -2.5)} aria-label="Riduci peso per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="number" step="0.5" placeholder="—" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Peso per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'weight', exercise.unit.includes('mano') ? 1 : 2.5)} aria-label="Aumenta peso per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                     <div class="rounded-2xl bg-cream p-2">
                       <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Ripetizioni</span>
                       <div class="mt-1 flex items-center gap-1">
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
-                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
-                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -1)} aria-label="Riduci ripetizioni per tutte le serie"><Minus size={13} /></button>
+                        <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="number" placeholder="—" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Ripetizioni per tutte le serie" />
+                        <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 1)} aria-label="Aumenta ripetizioni per tutte le serie"><Plus size={13} /></button>
                       </div>
                     </div>
                   </div>
@@ -1026,7 +1166,7 @@
                       <div><span class="block text-xs font-extrabold text-ink">Quanto ti ha affaticato?</span><span class="mt-0.5 block text-[0.68rem] text-muted">Un solo valore per tutto l'esercizio</span></div>
                       <span class="rounded-full px-3 py-1.5 text-xs font-extrabold text-white shadow-sm" style={`background-color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel ? `${exerciseEffort}/4 · ${exerciseEffortLevel.label}` : 'Scegli 1–4'}</span>
                     </div>
-                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
+                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
                     <div class="mt-2 grid grid-cols-4 text-center text-[0.58rem] font-bold leading-3 text-muted"><span>1<br />Leggero</span><span>2<br />Giusto</span><span>3<br />Duro</span><span>4<br />Al limite</span></div>
                     <p class="mt-3 text-center text-[0.65rem] font-semibold" style={`color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel?.detail ?? 'Sposta la barra dopo aver finito l’esercizio'}</p>
                   </div>
@@ -1034,15 +1174,15 @@
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
                     <div class="mx-auto mt-1 flex max-w-48 items-center gap-1">
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
-                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
-                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', -5)} aria-label="Riduci durata"><Minus size={13} /></button>
+                      <input class="min-w-0 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="number" placeholder="20" value={exerciseLogs[0]?.reps ?? ''} oninput={(event) => inputForAll(exercise.id, 'reps', event)} aria-label="Secondi per ogni tenuta" />
+                      <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white disabled:opacity-35" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => adjustAll(exercise.id, 'reps', 5)} aria-label="Aumenta durata"><Plus size={13} /></button>
                     </div>
                   </div>
                 {:else if exerciseMode === 'carry'}
                   <label class="block rounded-2xl bg-cream p-3">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Carico facoltativo · {exercise.unit}</span>
-                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
+                    <input class="mt-1 w-full bg-transparent text-center text-base font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="number" step="0.5" placeholder="Non indicato" value={exerciseLogs[0]?.weight ?? ''} oninput={(event) => inputForAll(exercise.id, 'weight', event)} aria-label="Carico farmer carry per tutti i giri" />
                   </label>
                 {:else}
                   <p class="rounded-2xl bg-cream p-3 text-center text-sm text-muted">Nessun peso o numero di ripetizioni da inserire.</p>
@@ -1050,18 +1190,26 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt) || exerciseSkipped} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
                       {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>
                   {/each}
                 </div>
+                {#if !activeSession.completedAt && !activeSession.skippedReason && !exerciseSkipped}
+                  <div class="mt-2 flex gap-2">
+                    <button class="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-black/15 px-3 py-2.5 text-xs font-bold text-muted transition active:scale-[0.99]" onclick={() => addSet(exercise.id)} aria-label={`Aggiungi un ${setUnitLabel(exercise)} a ${exercise.name}`}><Plus size={14} /> Aggiungi {setUnitLabel(exercise)}{exerciseLogs.length > exercise.sets ? ` (${exerciseLogs.length})` : ''}</button>
+                    {#if exerciseLogs.length > exercise.sets}
+                      <button class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-black/10 text-muted transition active:scale-95" onclick={() => removeAddedSet(exercise.id, exercise.sets)} aria-label={`Rimuovi l'ultimo ${setUnitLabel(exercise)} aggiunto`} title="Rimuovi l'ultimo aggiunto"><Minus size={14} /></button>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             </section>
           {/each}
         </div>
 
-        {#if sessionIsComplete(activeSession) && !activeSession.completedAt}
+        {#if sessionIsComplete(activeSession) && !activeSession.completedAt && !activeSession.skippedReason}
           <section class="mt-4 rounded-[1.75rem] bg-moss p-5 text-white" aria-live="polite">
             <div class="flex items-center gap-3"><span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15"><Check size={20} /></span><div><h2 class="font-bold">Seduta pronta per la chiusura</h2><p class="mt-1 text-xs leading-5 text-white/75">Le attività svolte sono complete; quelle escluse restano indicate come tali. Aggiungi eventuali tempi e note, poi chiudi.</p></div></div>
           </section>
@@ -1071,11 +1219,21 @@
           <h2 class="font-bold">Chiusura seduta</h2>
           <p class="mt-1 text-xs leading-5 text-muted">Tutto facoltativo. Il tempo totale viene calcolato automaticamente se lo lasci vuoto. {workouts[activeSession.type].cardio}</p>
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="Auto" value={activeSession.durationMinutes ?? ''} oninput={(event) => updateSessionNumber('durationMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
-            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} type="number" placeholder="—" value={activeSession.cardioMinutes ?? ''} oninput={(event) => updateSessionNumber('cardioMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Tempo totale</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} type="number" placeholder="Auto" value={activeSession.durationMinutes ?? ''} oninput={(event) => updateSessionNumber('durationMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Intera seduta</span></label>
+            <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Cardio extra</span><span class="mt-1 flex items-center gap-1"><input class="w-full bg-transparent text-xl font-bold outline-none disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} type="number" placeholder="—" value={activeSession.cardioMinutes ?? ''} oninput={(event) => updateSessionNumber('cardioMinutes', event)} /><span class="text-xs text-muted">min</span></span><span class="mt-1 block text-[0.65rem] text-muted">Solo se svolto</span></label>
           </div>
-          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60 disabled:opacity-60" disabled={Boolean(activeSession.completedAt)} placeholder="Come ti sei sentito? Note sulla tecnica…" value={activeSession.notes} oninput={updateSessionNotes}></textarea>
-          {#if sessionIsComplete(activeSession) && !activeSession.completedAt}
+          <textarea class="mt-3 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60 disabled:opacity-60" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} placeholder="Come ti sei sentito? Note sulla tecnica…" value={activeSession.notes} oninput={updateSessionNotes}></textarea>
+          {#if !activeSession.completedAt && !activeSession.skippedReason}
+            <div class="mt-3 rounded-2xl bg-cream p-4">
+              <p class="text-xs font-extrabold text-ink">Non riesci a farla?</p>
+              <p class="mt-0.5 text-[0.68rem] leading-4 text-muted">Segnala la seduta come saltata invece di lasciarla in sospeso. Puoi scrivere il motivo nelle note qui sopra.</p>
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" disabled={workoutSkipping} onclick={() => skipActiveWorkout('forza_maggiore')}>Causa maggiore</button>
+                <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" disabled={workoutSkipping} onclick={() => skipActiveWorkout('pigrizia')}>Pigrizia</button>
+              </div>
+            </div>
+          {/if}
+          {#if sessionIsComplete(activeSession) && !activeSession.completedAt && !activeSession.skippedReason}
             <button class="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3.5 font-bold text-white transition active:scale-[0.99] disabled:opacity-60" disabled={finishing} onclick={finishWorkout}>
               {#if finishing}<LoaderCircle class="animate-spin" size={17} /> Conclusione…{:else}<LockKeyhole size={17} /> Concludi e blocca{/if}
             </button>
@@ -1101,6 +1259,12 @@
         <button class="icon-button shrink-0" type="button" onclick={() => activeActivity = null} aria-label="Chiudi"><X size={19} /></button>
       </div>
 
+      {#if activeActivity.skippedReason && !activeActivity.completedAt}
+        <div class="mt-5 rounded-2xl bg-black/[0.04] p-4">
+          <p class="text-sm font-extrabold">Saltata · {skipReasonLabel(activeActivity.skippedReason)}</p>
+          {#if activeActivity.notes.trim()}<p class="mt-1 text-xs leading-5 text-muted">{activeActivity.notes}</p>{/if}
+        </div>
+      {/if}
       <p class="mt-5 text-sm leading-6 text-muted">{activeActivity.type === 'run' ? 'Giro standard · 1,3 km · scatto facoltativo negli ultimi 150 metri.' : 'Compila solo quello che ti è utile.'} Salvare significa segnare l’attività come svolta.</p>
       <div class="mt-5">
         <label class="block rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" placeholder="—" value={activeActivity.durationMinutes ?? ''} oninput={(event) => activeActivity!.durationMinutes = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">min</span></span></label>
@@ -1122,12 +1286,22 @@
         </div>
       {/if}
 
-      <label class="mt-3 block"><span class="eyebrow ml-1">Note</span><textarea class="mt-2 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito?" value={activeActivity.notes} oninput={(event) => activeActivity!.notes = event.currentTarget.value}></textarea></label>
+      <label class="mt-3 block"><span class="eyebrow ml-1">Note</span><textarea class="mt-2 min-h-24 w-full resize-none rounded-2xl bg-cream p-4 text-sm outline-none placeholder:text-muted/60" placeholder="Come ti sei sentito? Oppure il motivo del salto…" value={activeActivity.notes} oninput={(event) => activeActivity!.notes = event.currentTarget.value}></textarea></label>
+      {#if !activeActivity.completedAt && !activeActivity.skippedReason}
+        <div class="mt-3 rounded-2xl bg-cream p-4">
+          <p class="text-xs font-extrabold text-ink">Non riesci a farla?</p>
+          <p class="mt-0.5 text-[0.68rem] leading-4 text-muted">Segnala l’attività come saltata invece di lasciarla in sospeso.</p>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" type="button" disabled={activitySaving} onclick={() => skipActiveActivity('forza_maggiore')}>Causa maggiore</button>
+            <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" type="button" disabled={activitySaving} onclick={() => skipActiveActivity('pigrizia')}>Pigrizia</button>
+          </div>
+        </div>
+      {/if}
       <button class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-4 font-bold text-white disabled:opacity-60" type="submit" disabled={activitySaving}>
         {#if activitySaving}<LoaderCircle class="animate-spin" size={17} /> Salvataggio…{:else}<Check size={17} /> {activeActivity.completedAt ? 'Aggiorna attività' : 'Segna come svolta'}{/if}
       </button>
-      {#if activeActivity.completedAt}
-        <button class="mt-3 w-full py-2 text-sm font-bold text-red-700 disabled:opacity-50" type="button" disabled={activitySaving} onclick={removeActiveActivity}>Segna come non svolta</button>
+      {#if activeActivity.completedAt || activeActivity.skippedReason}
+        <button class="mt-3 w-full py-2 text-sm font-bold text-red-700 disabled:opacity-50" type="button" disabled={activitySaving} onclick={removeActiveActivity}>{activeActivity.skippedReason && !activeActivity.completedAt ? 'Rimetti in programma' : 'Segna come non svolta'}</button>
       {/if}
     </form>
   </div>

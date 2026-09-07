@@ -1,10 +1,13 @@
 export type WorkoutType = 'A' | 'B' | 'C';
 export type ActivityType = 'run' | 'wing_chun';
+export type SkipReason = 'forza_maggiore' | 'pigrizia';
 
 export type ActivityLog = {
   date: string;
   type: ActivityType;
   completedAt: string | null;
+  skippedReason: SkipReason | null;
+  skippedAt: string | null;
   durationMinutes: number | null;
   distanceKm: number | null;
   rpe: number | null;
@@ -51,6 +54,8 @@ export type Session = {
   date: string;
   type: WorkoutType;
   completedAt: string | null;
+  skippedReason: SkipReason | null;
+  skippedAt: string | null;
   durationMinutes: number | null;
   cardioMinutes: number | null;
   notes: string;

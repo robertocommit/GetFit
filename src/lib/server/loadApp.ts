@@ -4,9 +4,11 @@ export async function loadAppData() {
   const settings = await query<{ start_date: string }>("SELECT to_char(start_date, 'YYYY-MM-DD') AS start_date FROM app_settings WHERE id = 1");
   const sessions = await query<{
     workout_date: string; workout_type: 'A' | 'B' | 'C'; completed_at: string | null;
+    skipped_reason: 'forza_maggiore' | 'pigrizia' | null; skipped_at: string | null;
     duration_minutes: number | null; cardio_minutes: number | null; notes: string;
   }>(`SELECT to_char(workout_date, 'YYYY-MM-DD') AS workout_date, workout_type, completed_at::text,
-      duration_minutes, cardio_minutes, notes FROM workout_sessions ORDER BY workout_date`);
+      skipped_reason, skipped_at::text, duration_minutes, cardio_minutes, notes
+      FROM workout_sessions ORDER BY workout_date`);
   const logs = await query<{
     workout_date: string; exercise_id: string; set_number: number; reps: number | null;
     weight: string | null; effort: number | null; completed: boolean; skipped: boolean;
@@ -16,9 +18,11 @@ export async function loadAppData() {
   const activities = await query<{
     activity_date: string; activity_type: 'run' | 'wing_chun'; duration_minutes: number | null;
     distance_km: string | null; rpe: number | null; sprint_completed: boolean;
-    notes: string; completed_at: string;
+    notes: string; completed_at: string | null;
+    skipped_reason: 'forza_maggiore' | 'pigrizia' | null; skipped_at: string | null;
   }>(`SELECT to_char(activity_date, 'YYYY-MM-DD') AS activity_date, activity_type,
-      duration_minutes, distance_km::text, rpe, sprint_completed, notes, completed_at::text
+      duration_minutes, distance_km::text, rpe, sprint_completed, notes, completed_at::text,
+      skipped_reason, skipped_at::text
       FROM activity_logs ORDER BY activity_date, activity_type`);
 
   return {
