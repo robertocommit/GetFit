@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Flame, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
   import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
@@ -106,8 +106,6 @@
   let skippedDuePigrizia = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'pigrizia').length);
   let skippedActivitiesCount = $derived(Object.values(activities).filter((activity) => activity.skippedReason && !activity.completedAt && activity.date >= activityTrackingStart() && activity.date <= todayKey).length);
   let currentMonth = $derived(monthNumber(startDate, todayKey));
-  let currentTheme = $derived(monthThemes[currentMonth - 1]);
-  let nextWorkout = $derived(plan.find((item) => item.date >= todayKey && !sessions[item.date]?.completedAt) ?? plan.at(-1));
   let progressPercent = $derived(Math.min(100, Math.round((completedDueCount / Math.max(1, dueWorkouts.length)) * 100)));
   let completedProgramSessions = $derived(Object.values(sessions).filter((session) => session.completedAt && session.date >= startDate && session.date <= todayKey));
   let totalCompletedSets = $derived(completedProgramSessions.reduce((total, session) => total + Object.values(session.logs).flat().filter((set) => set.completed).length, 0));
@@ -924,38 +922,6 @@
           {/each}
         </div>
         <div class="border-t border-black/[0.05] bg-cream/70 px-5 py-3 text-center text-[0.65rem] leading-4 text-muted">Tocca un'attività di oggi o passata per registrarla. Le attività future si attiveranno nel giorno previsto.</div>
-      </section>
-
-      {#if nextWorkout}
-        <section class="card overflow-hidden bg-ink text-white">
-          <div class="p-6 pb-5">
-            <div class="flex items-start justify-between">
-              <div>
-                <p class="text-xs font-bold uppercase tracking-[0.15em] text-lime">Prossima seduta</p>
-                <p class="mt-2 capitalize text-sm text-white/60">{formatDate(nextWorkout.date, true)}</p>
-              </div>
-              <span class="grid h-12 w-12 place-items-center rounded-2xl bg-white/10 text-xl font-extrabold">{nextWorkout.type}</span>
-            </div>
-            <h2 class="mt-8 text-3xl font-bold tracking-[-0.05em]">{workouts[nextWorkout.type].title}</h2>
-            <p class="mt-1 text-sm text-white/60">{workouts[nextWorkout.type].focus}</p>
-          </div>
-          <button class="flex w-full items-center justify-center gap-2 bg-lime px-5 py-4 font-bold text-ink transition active:bg-lime/90" onclick={() => openWorkout(nextWorkout.date, nextWorkout.type)}>
-            <Play size={18} fill="currentColor" /> Inizia allenamento
-          </button>
-        </section>
-      {/if}
-
-      <section class="grid grid-cols-2 gap-3">
-        <div class="card p-5">
-          <Flame class="text-moss" size={21} />
-          <p class="mt-5 text-3xl font-extrabold tracking-[-0.05em]">{Object.values(sessions).filter((s) => s.completedAt && s.date >= localKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 21))).length}</p>
-          <p class="mt-1 text-xs font-medium text-muted">sedute nelle ultime 3 settimane</p>
-        </div>
-        <div class="card p-5">
-          <ChartNoAxesColumnIncreasing class="text-moss" size={21} />
-          <p class="mt-5 text-3xl font-extrabold tracking-[-0.05em]">{currentTheme.title}</p>
-          <p class="mt-1 text-xs font-medium text-muted">focus del mese {currentMonth}</p>
-        </div>
       </section>
 
     </main>
