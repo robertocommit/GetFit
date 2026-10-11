@@ -24,6 +24,8 @@ Current routing, verified 2026-08-30:
 - `workout_type`: `A`, `B`, or `C`
 - `duration_minutes`, `cardio_minutes`, `notes`
 - `completed_at`: non-null means the application treats the session as locked
+- `skipped_reason`: `forza_maggiore`, `pigrizia`, or `vacanza` (migration `007_vacation_skip.sql`)
+- `skipped_at`: timestamp of the skip recording
 - `created_at`, `updated_at`
 
 ### `set_logs`
@@ -46,6 +48,7 @@ Current routing, verified 2026-08-30:
 - `duration_minutes`, `distance_km`, `rpe`, `sprint_completed`, `notes`
 - `rpe` is the perceived activity intensity on the same `1..4` scale used for exercise effort; null means it was not recorded.
 - `completed_at`, `created_at`, `updated_at`
+- `skipped_reason`: `forza_maggiore`, `pigrizia`, or `vacanza`; `skipped_at`
 - unique key: `(activity_date, activity_type)`
 
 ## Read-only checks

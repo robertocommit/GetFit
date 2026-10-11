@@ -1,7 +1,7 @@
 import { pool } from '$lib/server/db';
 import { json } from '@sveltejs/kit';
 
-const SKIP_REASONS = ['forza_maggiore', 'pigrizia'];
+const SKIP_REASONS = ['forza_maggiore', 'pigrizia', 'vacanza'];
 
 export async function PUT({ request }) {
   const body = await request.json();

@@ -2,6 +2,7 @@
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
+  import { exerciseSuggestion } from '$lib/progression';
   import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
 
   let { data, initialWorkoutDate = null } = $props<{ data: any; initialWorkoutDate?: string | null }>();
@@ -76,7 +77,7 @@
   let workoutSkipping = $state(false);
 
   function skipReasonLabel(reason: SkipReason | null | undefined) {
-    return reason === 'forza_maggiore' ? 'Causa maggiore' : reason === 'pigrizia' ? 'Pigrizia' : '';
+    return reason === 'forza_maggiore' ? 'Causa maggiore' : reason === 'pigrizia' ? 'Pigrizia' : reason === 'vacanza' ? 'Vacanza' : '';
   }
   let sessionStartedAt = $state<number | null>(null);
   let elapsedSeconds = $state(0);
@@ -103,6 +104,7 @@
   let completedDueCount = $derived(dueWorkouts.filter((item) => sessions[item.date]?.completedAt).length);
   let skippedDueCount = $derived(dueWorkouts.filter((item) => !sessions[item.date]?.completedAt && sessions[item.date]?.skippedReason).length);
   let skippedDueForza = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'forza_maggiore').length);
+  let skippedDueVacanza = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'vacanza').length);
   let skippedDuePigrizia = $derived(dueWorkouts.filter((item) => sessions[item.date]?.skippedReason === 'pigrizia').length);
   let skippedActivitiesCount = $derived(Object.values(activities).filter((activity) => activity.skippedReason && !activity.completedAt && activity.date >= activityTrackingStart() && activity.date <= todayKey).length);
   let currentMonth = $derived(monthNumber(startDate, todayKey));
@@ -413,25 +415,15 @@
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.logs[exerciseId];
   }
 
-  function suggestedWeight(type: WorkoutType, exerciseId: string, date: string) {
-    const exercise = workouts[type].exercises.find((item) => item.id === exerciseId)!;
-    const previous = latestLogs(exerciseId, date, type);
-    if (!previous?.length) return exercise.startWeight;
-    const weights = previous.map((set) => set.weight).filter((weight): weight is number => weight !== null);
-    if (!weights.length) return exercise.startWeight;
-    return weights.at(-1)!;
-  }
-
-  function suggestedReps(exercise: Exercise, previous: SetLog[], index: number) {
-    const fallback = exercise.minReps ?? null;
-    const current = previous[index]?.reps ?? previous[0]?.reps ?? fallback;
-    if (current === null) return null;
-    const previousExerciseComplete = previous.length >= exercise.sets
-      && previous.slice(0, exercise.sets).every((set) => set.completed);
-    if (!previousExerciseComplete) return current;
-    const recordedEffort = previous.slice(0, exercise.sets).map((set) => set.effort).filter((value): value is number => value !== null);
-    if (recordedEffort.length && Math.max(...recordedEffort) >= 3) return current;
-    return Math.min(current + 1, exercise.maxReps ?? current + 1);
+  function suggestionFor(type: WorkoutType, exercise: Exercise, date: string) {
+    const previousSession = Object.values(sessions)
+      .filter((session) => session.date < date && session.completedAt && session.type === type
+        && session.logs[exercise.id]?.some((set) => set.completed && !set.skipped))
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const gapDays = previousSession
+      ? Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${previousSession.date}T00:00:00Z`)) / 86400000)
+      : 0;
+    return exerciseSuggestion(exercise, previousSession?.logs[exercise.id] ?? [], gapDays >= 10);
   }
 
   function openWorkout(date: string, type: WorkoutType, updateUrl = true) {
@@ -444,16 +436,17 @@
     for (const exercise of workouts[type].exercises) {
       const saved = existing?.logs[exercise.id] ?? [];
       const previous = latestLogs(exercise.id, date, type) ?? [];
-      const weight = suggestedWeight(type, exercise.id, date);
+      const suggestion = suggestionFor(type, exercise, date);
+      const weight = suggestion.weight;
       const mode = exercise.tracking ?? 'strength';
       const defaultReps = mode === 'strength'
         ? (exercise.minReps ?? null)
         : mode === 'timed'
           ? Number(exercise.reps.match(/\d+/)?.[0] ?? 20)
           : mode === 'carry' ? 1 : null;
-      logs[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => saved[index] ? { ...saved[index] } : {
+      logs[exercise.id] = Array.from({ length: Math.max(exercise.sets, saved.length) }, (_, index) => saved[index] ? { ...saved[index] } : {
         setNumber: index + 1,
-        reps: mode === 'strength' ? suggestedReps(exercise, previous, index) : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
+        reps: mode === 'strength' ? suggestion.reps : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
         weight: mode === 'timed' || mode === 'mobility' ? null : weight,
         effort: null,
         completed: false,
@@ -960,7 +953,7 @@
       <section class="card mt-7 p-6">
         <div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Sedute svolte</p><p class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{completedDueCount} <span class="text-xl text-muted">su {dueWorkouts.length}</span></p></div><p class="rounded-full bg-lime/40 px-3 py-1.5 text-sm font-bold">{progressPercent}%</p></div>
         <p class="mt-3 text-xs leading-5 text-muted">Percentuale delle sedute programmate fino a oggi che hai completato interamente.</p>
-        {#if skippedDueCount > 0}<p class="mt-1 text-xs leading-5 text-muted">Saltate: {skippedDueCount} ({skippedDueForza} per causa maggiore · {skippedDuePigrizia} per pigrizia).</p>{/if}
+        {#if skippedDueCount > 0}<p class="mt-1 text-xs leading-5 text-muted">Saltate: {skippedDueCount} ({skippedDueForza} per causa maggiore · {skippedDuePigrizia} per pigrizia · {skippedDueVacanza} per vacanza).</p>{/if}
         <div class="mt-7">
           <div class="grid items-center gap-1.5" style="grid-template-columns: 4.5rem repeat(7, minmax(0, 1fr));">
             <span></span>
@@ -1098,6 +1091,9 @@
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
                 </div>
               </div>
+              {#if exerciseMode === 'strength' && !activeSession.completedAt && !activeSession.skippedReason}
+                <p class="px-5 pb-3 text-xs leading-5 text-moss">{suggestionFor(activeSession.type, exercise, activeSession.date).message}</p>
+              {/if}
               {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
               {#if exerciseSkipped}<p class="mx-4 mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">Escluso volontariamente da questa seduta. Tocca ↻ per ripristinarlo.</p>{/if}
               <div class="border-t border-black/[0.05] p-4">
@@ -1187,9 +1183,10 @@
             <div class="mt-3 rounded-2xl bg-cream p-4">
               <p class="text-xs font-extrabold text-ink">Non riesci a farla?</p>
               <p class="mt-0.5 text-[0.68rem] leading-4 text-muted">Segnala la seduta come saltata invece di lasciarla in sospeso. Puoi scrivere il motivo nelle note qui sopra.</p>
-              <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="mt-3 grid grid-cols-3 gap-2">
                 <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" disabled={workoutSkipping} onclick={() => skipActiveWorkout('forza_maggiore')}>Causa maggiore</button>
                 <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" disabled={workoutSkipping} onclick={() => skipActiveWorkout('pigrizia')}>Pigrizia</button>
+                <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold disabled:opacity-60" disabled={workoutSkipping} onclick={() => skipActiveWorkout('vacanza')}>Vacanza</button>
               </div>
             </div>
           {/if}
@@ -1251,9 +1248,10 @@
         <div class="mt-3 rounded-2xl bg-cream p-4">
           <p class="text-xs font-extrabold text-ink">Non riesci a farla?</p>
           <p class="mt-0.5 text-[0.68rem] leading-4 text-muted">Segnala l’attività come saltata invece di lasciarla in sospeso.</p>
-          <div class="mt-3 grid grid-cols-2 gap-2">
+          <div class="mt-3 grid grid-cols-3 gap-2">
             <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" type="button" disabled={activitySaving} onclick={() => skipActiveActivity('forza_maggiore')}>Causa maggiore</button>
             <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold transition active:scale-[0.98] disabled:opacity-60" type="button" disabled={activitySaving} onclick={() => skipActiveActivity('pigrizia')}>Pigrizia</button>
+            <button class="rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold disabled:opacity-60" type="button" disabled={activitySaving} onclick={() => skipActiveActivity('vacanza')}>Vacanza</button>
           </div>
         </div>
       {/if}
@@ -1309,7 +1307,7 @@
       <div class="flex items-center justify-between"><div><p class="eyebrow">Impostazioni</p><h2 class="mt-1 text-2xl font-extrabold tracking-[-0.05em]">Il tuo programma</h2></div><button class="icon-button" onclick={() => infoOpen = false} aria-label="Chiudi"><X size={19} /></button></div>
       <label class="mt-6 block"><span class="text-sm font-bold">Data di partenza</span><input class="mt-2 w-full rounded-2xl border border-black/10 bg-cream p-4 font-semibold outline-none focus:border-moss" type="date" value={startDate} onchange={(e) => updateStartDate(e.currentTarget.value)} /></label>
       <div class="mt-5 rounded-2xl bg-lime/30 p-4 text-sm leading-6"><strong>Fine prevista:</strong> {new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }).format(programEnd(startDate))}</div>
-      <div class="mt-5 space-y-3 text-sm leading-6 text-muted"><p><strong class="text-ink">Niente massimali.</strong> Interrompi la serie se la tecnica peggiora.</p><p><strong class="text-ink">Progressione.</strong> Aumenta il peso solo dopo aver raggiunto il massimo delle ripetizioni in tutte le serie.</p><p><strong class="text-ink">Collo.</strong> Mese 1 solo isometrie; dal mese 2 banda leggerissima se tutto è tranquillo.</p></div>
+      <div class="mt-5 space-y-3 text-sm leading-6 text-muted"><p><strong class="text-ink">Niente massimali.</strong> Interrompi la serie se la tecnica peggiora.</p><p><strong class="text-ink">Progressione.</strong> Aumenta il peso dopo il massimo delle ripetizioni in tutte le serie con fatica 1–2/4. Dopo almeno 10 giorni senza quella seduta, riparti dall’ultimo carico e verifica come ti senti.</p><p><strong class="text-ink">Collo.</strong> Mese 1 solo isometrie; dal mese 2 banda leggerissima se tutto è tranquillo.</p></div>
     </section>
   </div>
 {/if}

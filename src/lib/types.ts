@@ -1,6 +1,6 @@
 export type WorkoutType = 'A' | 'B' | 'C';
 export type ActivityType = 'run' | 'wing_chun';
-export type SkipReason = 'forza_maggiore' | 'pigrizia';
+export type SkipReason = 'forza_maggiore' | 'pigrizia' | 'vacanza';
 
 export type ActivityLog = {
   date: string;
