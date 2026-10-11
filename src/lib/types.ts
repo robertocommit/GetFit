@@ -23,6 +23,7 @@ export type Exercise = {
   minReps?: number;
   maxReps?: number;
   startWeight: number | null;
+  prescription?: { fromDate: string; weight: number };
   unit: string;
   increment: number | null;
   note?: string;

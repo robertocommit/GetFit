@@ -423,7 +423,11 @@
     const gapDays = previousSession
       ? Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${previousSession.date}T00:00:00Z`)) / 86400000)
       : 0;
-    return exerciseSuggestion(exercise, previousSession?.logs[exercise.id] ?? [], gapDays >= 10);
+    const prescription = exercise.prescription;
+    const prescribedWeight = prescription && date >= prescription.fromDate
+      && (!previousSession || previousSession.date < prescription.fromDate)
+      ? prescription.weight : undefined;
+    return exerciseSuggestion(exercise, previousSession?.logs[exercise.id] ?? [], gapDays >= 10, prescribedWeight);
   }
 
   function openWorkout(date: string, type: WorkoutType, updateUrl = true) {
@@ -444,9 +448,9 @@
         : mode === 'timed'
           ? Number(exercise.reps.match(/\d+/)?.[0] ?? 20)
           : mode === 'carry' ? 1 : null;
-      logs[exercise.id] = Array.from({ length: Math.max(exercise.sets, saved.length) }, (_, index) => saved[index] ? { ...saved[index] } : {
+      logs[exercise.id] = Array.from({ length: existing?.completedAt ? saved.length : Math.max(exercise.sets, saved.length) }, (_, index) => saved[index] ? { ...saved[index] } : {
         setNumber: index + 1,
-        reps: mode === 'strength' ? suggestion.reps : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
+        reps: mode === 'strength' ? suggestion.reps : mode === 'carry' ? 1 : (previous[index]?.reps ?? previous[0]?.reps ?? defaultReps),
         weight: mode === 'timed' || mode === 'mobility' ? null : weight,
         effort: null,
         completed: false,
@@ -1088,7 +1092,7 @@
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
                   <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
-                  <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exercise.sets} × {exercise.reps}</span>
+                  <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exerciseLogs.length} × {exercise.reps}</span>
                 </div>
               </div>
               {#if exerciseMode === 'strength' && !activeSession.completedAt && !activeSession.skippedReason}

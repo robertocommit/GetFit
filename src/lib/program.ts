@@ -6,12 +6,12 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
     focus: 'Squat · petto · schiena · presa',
     cardio: '15–20 min · camminata inclinata o cyclette',
     exercises: [
-      { id: 'squat', name: 'Squat', sets: 3, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 40, unit: 'kg', increment: 5 },
-      { id: 'bench', name: 'Bench press', sets: 4, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 40, unit: 'kg', increment: 2.5 },
+      { id: 'squat', name: 'Squat', sets: 4, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 50, prescription: { fromDate: '2026-10-13', weight: 50 }, unit: 'kg', increment: 5 },
+      { id: 'bench', name: 'Bench press', sets: 4, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 50, prescription: { fromDate: '2026-10-13', weight: 50 }, unit: 'kg', increment: 2.5 },
       { id: 'row', name: 'Seated cable row', sets: 4, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 35, unit: 'kg', increment: 5, note: 'Usa lo scatto minimo della macchina.' },
       { id: 'lateral', name: 'Lateral raises', sets: 3, reps: '12–15', minReps: 12, maxReps: 15, startWeight: 5, unit: 'kg/mano', increment: 1 },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
-      { id: 'carry', name: 'Farmer carry', sets: 4, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'carry', name: 'Farmer carry', sets: 4, reps: '1 andata e ritorno', startWeight: 20, prescription: { fromDate: '2026-10-13', weight: 20 }, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
       { id: 'dead-bug', name: 'Dead bug', sets: 2, reps: '30 sec', minReps: 30, startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Alterna lentamente braccio e gamba opposti mantenendo la zona lombare appoggiata.' },
       { id: 'neck-iso', name: 'Neck isometrics', sets: 2, reps: '20–30 sec/direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Solo pressione delicata contro la mano nel mese 1.' }
     ]
@@ -21,7 +21,7 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
     focus: 'Dorsali · anche · unilateralità',
     cardio: 'Cardio facoltativo, ritmo facile',
     exercises: [
-      { id: 'rdl', name: 'Romanian deadlift', sets: 3, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 40, unit: 'kg', increment: 5 },
+      { id: 'rdl', name: 'Romanian deadlift', sets: 4, reps: '8–10', minReps: 8, maxReps: 10, startWeight: 50, prescription: { fromDate: '2026-10-13', weight: 50 }, unit: 'kg', increment: 5 },
       { id: 'incline-db', name: 'Incline dumbbell press', sets: 4, reps: '8–12', minReps: 8, maxReps: 12, startWeight: 12, unit: 'kg/mano', increment: 2 },
       { id: 'pulldown', name: 'Lat pulldown', sets: 4, reps: '8–12', minReps: 8, maxReps: 12, startWeight: 35, unit: 'kg', increment: 5 },
       { id: 'split-squat', name: 'Bulgarian split squat', sets: 3, reps: '8–10/gamba', minReps: 8, maxReps: 10, startWeight: 0, unit: 'kg/mano', increment: 2, note: 'Inizia a corpo libero; aggiungi peso solo con controllo.' },
@@ -38,13 +38,13 @@ export const workouts: Record<WorkoutType, { title: string; focus: string; cardi
     cardio: '20–25 min · intensità facile',
     exercises: [
       { id: 'leg-press', name: 'Leg press', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 100, unit: 'kg', increment: 10 },
-      { id: 'bench', name: 'Bench press', sets: 3, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 35, unit: 'kg', increment: 2.5 },
+      { id: 'bench', name: 'Bench press', sets: 4, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 50, prescription: { fromDate: '2026-10-13', weight: 50 }, unit: 'kg', increment: 2.5 },
       { id: 'row', name: 'Seated cable row', sets: 3, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 35, unit: 'kg', increment: 5 },
       { id: 'pulldown', name: 'Lat pulldown', sets: 3, reps: '10–12', minReps: 10, maxReps: 12, startWeight: 35, unit: 'kg', increment: 5 },
       { id: 'lateral', name: 'Lateral raises', sets: 4, reps: '12–20', minReps: 12, maxReps: 20, startWeight: 5, unit: 'kg/mano', increment: 1 },
       { id: 'pushdown', name: 'Triceps pushdown', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: null, unit: 'kg', increment: 5, note: 'Scegli un peso facile/moderato.' },
       { id: 'curl', name: 'Dumbbell curl', sets: 3, reps: '10–15', minReps: 10, maxReps: 15, startWeight: 8, unit: 'kg/mano', increment: 1 },
-      { id: 'carry', name: 'Farmer carry', sets: 3, reps: '1 andata e ritorno', startWeight: 16, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
+      { id: 'carry', name: 'Farmer carry', sets: 4, reps: '1 andata e ritorno', startWeight: 20, prescription: { fromDate: '2026-10-13', weight: 20 }, unit: 'kg/mano', increment: 2, tracking: 'carry', note: 'Ogni giro è una singola andata e ritorno. Il carico è facoltativo.' },
       { id: 'side-plank', name: 'Side plank', sets: 2, reps: '20 sec/lato', minReps: 20, startWeight: null, unit: 'sec', increment: null, tracking: 'timed', note: 'Completa entrambi i lati in ogni tenuta mantenendo bacino e spalle allineati.' },
       { id: 'neck', name: 'Mobilità del collo', sets: 2, reps: 'per direzione', startWeight: null, unit: 'sec', increment: null, tracking: 'mobility', note: 'Movimenti leggeri per ogni direzione, senza carico.' }
     ]

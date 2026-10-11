@@ -1,6 +1,13 @@
 import type { Exercise, SetLog } from './types';
 
-export function exerciseSuggestion(exercise: Exercise, previous: SetLog[], returning = false) {
+export function exerciseSuggestion(exercise: Exercise, previous: SetLog[], returning = false, prescribedWeight?: number) {
+  if (prescribedWeight !== undefined) {
+    return {
+      weight: prescribedWeight,
+      reps: exercise.minReps ?? null,
+      message: `Obiettivo impostato: ${prescribedWeight} ${exercise.unit} per ${exercise.sets} serie. Conferma il carico nel riscaldamento.`
+    };
+  }
   const completed = previous.filter((set) => set.completed && !set.skipped);
   const lastWeight = completed.filter((set) => set.weight !== null).at(-1)?.weight ?? exercise.startWeight;
   const fallbackReps = exercise.minReps ?? null;

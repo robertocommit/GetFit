@@ -62,3 +62,21 @@ test('unknown or zero starting weights are retained without inventing a load', (
   assert.equal(exerciseSuggestion({ ...bench, startWeight: null }, []).weight, null);
   assert.equal(exerciseSuggestion({ ...bench, startWeight: 0 }, []).weight, 0);
 });
+
+test('a newly prescribed load replaces the old load even on return from a break', () => {
+  const suggestion = exerciseSuggestion(bench, logs(12, 3), true, 50);
+  assert.equal(suggestion.weight, 50);
+  assert.equal(suggestion.reps, 8);
+  assert.match(suggestion.message, /Obiettivo impostato/);
+});
+
+test('a newly prescribed carry uses its requested load without importing old reps', () => {
+  const suggestion = exerciseSuggestion({ ...bench, tracking: 'carry', minReps: undefined }, logs(30), true, 20);
+  assert.equal(suggestion.weight, 20);
+  assert.equal(suggestion.reps, null);
+});
+
+test('after logging the new load normal progression can continue', () => {
+  const previous = logs().map((set) => ({ ...set, weight: 50 }));
+  assert.equal(exerciseSuggestion(bench, previous).weight, 52.5);
+});
