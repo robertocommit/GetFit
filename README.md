@@ -6,7 +6,7 @@ Corsa lunedì, mercoledì e venerdì; Wing Chun lunedì e mercoledì. Le sedute 
 
 I suggerimenti mantengono i carichi al rientro dopo almeno 10 giorni senza la stessa seduta. Poi aumentano le ripetizioni con fatica 1–2/4 e propongono lo scatto previsto quando tutte le serie raggiungono il massimo delle ripetizioni allo stesso peso. Se la fatica manca, il carico resta invariato.
 
-Ogni esercizio include una guida visuale integrata con attrezzo, preparazione, esecuzione, respirazione, errori comuni, sicurezza e alternativa: non serve lasciare l'app per cercare i movimenti.
+Ogni esercizio include una guida visuale integrata con benefici e obiettivi a lungo termine, attrezzo, preparazione, esecuzione, respirazione, errori comuni, sicurezza e alternativa: non serve lasciare l'app per cercare i movimenti.
 
 ## Avvio
 

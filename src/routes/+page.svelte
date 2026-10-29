@@ -1352,6 +1352,19 @@
 
         <section class="card mt-6 p-5">
           <div class="flex gap-4">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime/50"><Target size={18} /></span>
+            <div class="min-w-0 flex-1">
+              <p class="eyebrow">Perché lo fai</p>
+              <h2 class="mt-1 font-bold">Cosa alleni</h2>
+              <p class="mt-2 text-sm leading-6 text-muted">{guide.benefit}</p>
+              <h2 class="mt-4 font-bold">Beneficio a lungo termine</h2>
+              <p class="mt-2 text-sm leading-6 text-muted">{guide.longTermBenefit}</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card mt-3 p-5">
+          <div class="flex gap-4">
             <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime/50"><Wrench size={18} /></span>
             <div><p class="eyebrow">Cosa cercare</p><h2 class="mt-1 font-bold">Attrezzo</h2><p class="mt-2 text-sm leading-6 text-muted">{guide.equipment}</p></div>
           </div>

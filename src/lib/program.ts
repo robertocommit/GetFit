@@ -61,6 +61,8 @@ export const monthThemes = [
 
 export const exerciseGuides: Record<string, ExerciseGuide> = {
   squat: {
+    benefit: 'Alleni soprattutto quadricipiti e glutei, mentre il tronco mantiene stabile il carico.',
+    longTermBenefit: 'Costruisci forza nelle gambe utile per alzarti da una sedia, salire le scale e sollevare oggetti da una posizione bassa. Con continuità e progressione contribuisci a mantenere massa muscolare negli anni.',
     equipment: 'Rack, bilanciere e dischi. Il bilanciere parte sui supporti all’altezza del petto.',
     setup: 'Bilanciere sulla parte alta della schiena, piedi poco oltre le anche e punte leggermente aperte.',
     steps: ['Fai un passo indietro e crea tensione nell’addome.', 'Porta anche e ginocchia verso il basso mantenendo tutto il piede a terra.', 'Scendi fin dove controlli la schiena, poi spingi il pavimento e risali.'],
@@ -71,6 +73,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Usa le barre di sicurezza del rack e chiedi al trainer di controllare le prime sedute.'
   },
   bench: {
+    benefit: 'Sviluppi petto, tricipiti e spalle anteriori attraverso una spinta orizzontale.',
+    longTermBenefit: 'Costruisci forza per spingere oggetti e sostenerti sulle braccia, oltre a sviluppare la muscolatura del petto e delle braccia.',
     equipment: 'Panca piana, rack, bilanciere e dischi.',
     setup: 'Occhi sotto il bilanciere, piedi ben appoggiati, scapole avvicinate e petto stabile.',
     steps: ['Afferra il bilanciere poco oltre la larghezza delle spalle.', 'Portalo sopra il petto e abbassalo con controllo verso la parte medio-bassa dello sterno.', 'Spingi verso l’alto senza staccare glutei o piedi.'],
@@ -81,6 +85,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Imposta i fermi o fatti assistere. Non portare mai una serie a cedimento senza spotter.'
   },
   row: {
+    benefit: 'Rinforzi dorsali, muscoli tra le scapole e bicipiti con una tirata orizzontale.',
+    longTermBenefit: 'Sviluppi la capacità di tirare oggetti verso di te e controllare le scapole sotto carico, utile anche negli altri esercizi per la parte superiore del corpo.',
     equipment: 'Pulley basso con seduta, appoggi per i piedi e maniglia stretta o neutra.',
     setup: 'Piedi sugli appoggi, ginocchia morbide, busto alto e braccia distese.',
     steps: ['Inizia portando le scapole leggermente indietro.', 'Tira la maniglia verso l’ombelico mantenendo i gomiti vicini.', 'Fermati un istante, poi distendi lentamente le braccia.'],
@@ -90,6 +96,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Rematore con manubrio appoggiando una mano alla panca.'
   },
   lateral: {
+    benefit: 'Lavori soprattutto sulla parte laterale dei deltoidi, che solleva le braccia ai lati.',
+    longTermBenefit: 'Sviluppi volume nelle spalle e forza nel sollevare le braccia lateralmente, un movimento poco allenato dalle sole spinte per il petto.',
     equipment: 'Due manubri leggeri.',
     setup: 'In piedi, addome attivo, gomiti appena piegati e manubri ai lati.',
     steps: ['Solleva le braccia lateralmente guidando il movimento con i gomiti.', 'Fermati circa all’altezza delle spalle.', 'Scendi lentamente senza far sbattere i manubri.'],
@@ -99,6 +107,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Alzate laterali al cavo, un braccio alla volta.'
   },
   curl: {
+    benefit: 'Rinforzi i muscoli che piegano il gomito, in particolare bicipiti e brachiale.',
+    longTermBenefit: 'Costruisci forza per sollevare e tenere oggetti con il gomito piegato e aggiungi lavoro diretto per la massa delle braccia.',
     equipment: 'Due manubri.',
     setup: 'In piedi, braccia lungo i fianchi e gomiti vicini al busto.',
     steps: ['Piega i gomiti portando i manubri verso le spalle.', 'Mantieni il busto fermo e stringi i bicipiti.', 'Abbassa fino quasi a distendere completamente le braccia.'],
@@ -108,6 +118,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Curl al cavo basso o alla macchina.'
   },
   carry: {
+    benefit: 'Alleni insieme presa, avambracci e capacità del tronco di restare stabile mentre cammini con un carico.',
+    longTermBenefit: 'Sviluppi forza e resistenza per trasportare borse, valigie e attrezzi mantenendo il controllo del corpo per tutta la distanza.',
     equipment: 'Due manubri o kettlebell dello stesso peso e un corridoio libero.',
     setup: 'Pesi ai lati, petto alto, addome attivo e spalle lontane dalle orecchie.',
     steps: ['Solleva i pesi come in un deadlift, senza curvare la schiena.', 'Cammina con passi naturali e controllati.', 'Fermati, appoggia i pesi piegando anche e ginocchia.'],
@@ -117,6 +129,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Suitcase carry con un solo manubrio, alternando i lati.'
   },
   'dead-bug': {
+    benefit: 'Alleni il controllo dell’addome mantenendo stabile il tronco mentre braccia e gambe si muovono.',
+    longTermBenefit: 'Costruisci coordinazione tra arti, bacino e tronco: una base utile per gestire i movimenti senza perdere subito il controllo della posizione della schiena.',
     image: '/guides/dead-bug.webp',
     equipment: 'Tappetino; non serve alcun carico.',
     setup: 'Sdraiato sulla schiena, anche e ginocchia a 90°, braccia verso il soffitto e zona lombare aderente al tappetino.',
@@ -127,6 +141,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Muovi soltanto le gambe o soltanto le braccia per ridurre la difficoltà.'
   },
   'neck-iso': {
+    benefit: 'Alleni i muscoli del collo a produrre una tensione leggera senza muovere la testa.',
+    longTermBenefit: 'Con una progressione prudente puoi sviluppare forza isometrica e resistenza nel mantenere la testa stabile.',
     equipment: 'Solo la mano; nessuna macchina necessaria nel primo mese.',
     setup: 'Seduto o in piedi, collo neutro e spalle rilassate.',
     steps: ['Appoggia la mano sulla fronte.', 'Spingi la testa contro la mano senza produrre movimento.', 'Ripeti dietro e sui due lati con pressione delicata.'],
@@ -137,6 +153,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Interrompi subito in caso di dolore, formicolio, vertigini o mal di testa.'
   },
   rdl: {
+    benefit: 'Rinforzi glutei e posteriori della coscia e impari a piegarti dalle anche mantenendo il tronco stabile.',
+    longTermBenefit: 'Costruisci forza nella catena posteriore, utile per rialzarti da una posizione inclinata e gestire sollevamenti in cui il lavoro parte dalle anche.',
     equipment: 'Bilanciere e dischi; può partire dal rack o da terra con carico leggero.',
     setup: 'Piedi alla larghezza delle anche, bilanciere vicino alle cosce, ginocchia appena piegate.',
     steps: ['Porta il sedere indietro mantenendo il bilanciere aderente alle gambe.', 'Scendi finché senti allungarsi i posteriori coscia senza curvare la schiena.', 'Spingi le anche in avanti e torna in piedi.'],
@@ -147,6 +165,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Il movimento viene dalle anche; fermati appena perdi la posizione neutra della schiena.'
   },
   'incline-db': {
+    benefit: 'Alleni petto, soprattutto la porzione clavicolare, tricipiti e spalle anteriori con due carichi indipendenti.',
+    longTermBenefit: 'Sviluppi forza nelle spinte inclinate e massa nella parte alta del petto, allenando ciascun braccio a controllare il proprio manubrio.',
     equipment: 'Panca regolabile inclinata circa 30° e due manubri.',
     setup: 'Piedi a terra, scapole appoggiate e manubri ai lati del petto.',
     steps: ['Spingi i manubri verso l’alto e leggermente verso il centro.', 'Fermati senza sbatterli tra loro.', 'Riportali lentamente ai lati del petto.'],
@@ -156,6 +176,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Chest press inclinata alla macchina.'
   },
   pulldown: {
+    benefit: 'Rinforzi dorsali e flessori del gomito tirando un carico dall’alto verso il petto.',
+    longTermBenefit: 'Costruisci forza nella tirata verticale e muscolatura della schiena; è un modo per preparare il lavoro verso le trazioni con una resistenza regolabile.',
     equipment: 'Lat machine con barra larga e cuscinetti per bloccare le cosce.',
     setup: 'Regola i cuscinetti sopra le cosce; presa poco oltre le spalle e busto quasi verticale.',
     steps: ['Abbassa prima le scapole.', 'Tira la barra verso la parte alta del petto portando i gomiti in basso.', 'Risali lentamente fino a distendere le braccia.'],
@@ -165,6 +187,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Pulldown con presa neutra o trazioni assistite.'
   },
   'split-squat': {
+    benefit: 'Alleni quadricipiti e glutei una gamba alla volta, insieme al controllo dell’equilibrio.',
+    longTermBenefit: 'Sviluppi forza per salire gradini e rialzarti da un affondo. Il lavoro separato permette di allenare entrambe le gambe senza affidare tutto il carico alla più forte.',
     equipment: 'Panca bassa; inizialmente nessun peso, poi due manubri.',
     setup: 'Un piede avanti ben stabile, dorso dell’altro piede sulla panca.',
     steps: ['Scendi verticalmente piegando il ginocchio anteriore.', 'Mantieni il piede davanti completamente a terra.', 'Spingi attraverso la gamba anteriore e risali.'],
@@ -174,6 +198,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Step-up su box basso o affondo statico.'
   },
   'face-pull': {
+    benefit: 'Alleni la parte posteriore delle spalle e i muscoli che controllano le scapole, con una componente di rotazione esterna.',
+    longTermBenefit: 'Sviluppi forza e controllo nella parte posteriore del cingolo scapolare, completando il lavoro delle spinte per petto e spalle.',
     equipment: 'Cavo alto con corda.',
     setup: 'Cavo circa all’altezza del viso, presa con pollici verso di te e corpo stabile.',
     steps: ['Tira la corda verso occhi e fronte.', 'Apri le estremità portando le mani ai lati del viso.', 'Ritorna lentamente senza far avanzare le spalle.'],
@@ -183,6 +209,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Reverse fly alla macchina.'
   },
   shrug: {
+    benefit: 'Rinforzi soprattutto il trapezio superiore, il muscolo che solleva le scapole, e alleni la presa tenendo i manubri.',
+    longTermBenefit: 'Con continuità e progressione sviluppi trapezi più forti e voluminosi e maggiore capacità di sollevare le spalle contro resistenza. Questo lavoro completa quello della parte alta della schiena nelle tirate e nei trasporti.',
     equipment: 'Due manubri.',
     setup: 'Pesi ai lati, braccia distese e testa neutra.',
     steps: ['Solleva le spalle verticalmente verso le orecchie.', 'Mantieni un istante senza muovere il collo.', 'Abbassa lentamente fino alla posizione iniziale.'],
@@ -192,6 +220,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Shrug alla macchina o con bilanciere.'
   },
   'dead-hang': {
+    benefit: 'Alleni la presa a sostenere il peso del corpo e la tolleranza alla posizione con le braccia sopra la testa.',
+    longTermBenefit: 'Sviluppi resistenza di mani e avambracci utile per restare alla sbarra e preparare le trazioni. La durata va costruita rispettando il comfort delle spalle.',
     equipment: 'Sbarra per trazioni sufficientemente alta.',
     setup: 'Afferra la sbarra poco oltre le spalle; usa un rialzo per arrivarci senza saltare.',
     steps: ['Stacca i piedi e lascia le braccia distese.', 'Mantieni una presa attiva e il corpo tranquillo.', 'Torna sul rialzo prima che la presa ceda.'],
@@ -201,6 +231,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Tenuta isometrica di due manubri pesanti.'
   },
   'pallof-hold': {
+    benefit: 'Alleni addome e obliqui a resistere a una forza che cerca di ruotare il busto.',
+    longTermBenefit: 'Sviluppi controllo del tronco contro la rotazione, utile quando spingi, tiri o gestisci un carico da un solo lato.',
     image: '/guides/pallof-hold.webp',
     equipment: 'Cavo regolabile o banda elastica fissata all’altezza del petto.',
     setup: 'Mettiti di lato rispetto al punto di ancoraggio, piedi stabili e maniglia tenuta davanti al petto.',
@@ -211,6 +243,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Pallof hold in ginocchio con una banda più leggera.'
   },
   'neck-lateral': {
+    benefit: 'Alleni i muscoli laterali del collo a resistere a una pressione delicata mantenendo la testa ferma.',
+    longTermBenefit: 'Puoi sviluppare forza isometrica e resistenza laterale del collo con un carico controllato. L’obiettivo è mantenere la testa stabile contro una resistenza laterale.',
     equipment: 'Solo la mano; dal mese 2 eventualmente una banda leggerissima.',
     setup: 'Testa neutra e mano appoggiata sopra l’orecchio.',
     steps: ['Spingi delicatamente la testa verso la mano.', 'La mano impedisce ogni movimento.', 'Mantieni e ripeti dall’altro lato.'],
@@ -221,6 +255,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Nessun dolore o vertigine è accettabile.'
   },
   'leg-press': {
+    benefit: 'Alleni quadricipiti e glutei con il tronco sostenuto dalla macchina.',
+    longTermBenefit: 'Aggiungi lavoro per forza e massa delle gambe senza dover sostenere un bilanciere sulla schiena, contribuendo alla capacità di spingere con le gambe nelle attività quotidiane.',
     equipment: 'Leg press inclinata o orizzontale con sedile e pedana.',
     setup: 'Schiena e bacino aderenti al sedile, piedi sulla pedana poco oltre le anche.',
     steps: ['Sblocca i fermi con le gambe quasi distese ma non rigide.', 'Piega le ginocchia finché il bacino resta appoggiato.', 'Spingi tutta la pedana e torna su senza bloccare violentemente le ginocchia.'],
@@ -231,6 +267,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     safety: 'Controlla dove sono le leve di sicurezza prima di iniziare.'
   },
   pushdown: {
+    benefit: 'Alleni direttamente i tricipiti, che distendono il gomito.',
+    longTermBenefit: 'Sviluppi massa nella parte posteriore delle braccia e forza nell’estensione del gomito, che partecipa anche a panca e altre spinte.',
     equipment: 'Cavo alto con corda o barra corta.',
     setup: 'Gomiti aderenti ai fianchi, busto stabile e avambracci piegati.',
     steps: ['Spingi la corda verso il basso muovendo solo gli avambracci.', 'Distendi i gomiti e separa leggermente la corda.', 'Torna con controllo senza far avanzare i gomiti.'],
@@ -240,6 +278,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Triceps extension alla macchina.'
   },
   'side-plank': {
+    benefit: 'Alleni soprattutto gli obliqui a mantenere il tronco stabile contro la flessione laterale.',
+    longTermBenefit: 'Costruisci resistenza nel mantenere bacino e busto allineati, utile quando porti un peso da un lato o lavori in appoggio su un solo braccio.',
     image: '/guides/side-plank.webp',
     equipment: 'Tappetino; non serve alcun carico.',
     setup: 'Avambraccio sotto la spalla, gambe distese e piedi sovrapposti oppure sfalsati.',
@@ -250,6 +290,8 @@ export const exerciseGuides: Record<string, ExerciseGuide> = {
     alternative: 'Appoggia il ginocchio inferiore a terra mantenendo il bacino sollevato.'
   },
   neck: {
+    benefit: 'Pratichi movimenti lenti del collo nell’ampiezza che riesci a controllare comodamente.',
+    longTermBenefit: 'Coltivi il controllo del movimento e la mobilità del collo per girare e orientare la testa nelle attività quotidiane. Il beneficio cercato è la qualità del movimento, senza forzare l’ampiezza.',
     equipment: 'Mese 1: mano. Dal mese 2: banda molto leggera.',
     setup: 'Collo neutro, banda stabile e movimento minimo e lento.',
     steps: ['Crea una resistenza molto leggera.', 'Muovi lentamente solo nell’ampiezza completamente comoda.', 'Ritorna con controllo e ripeti nelle direzioni previste.'],

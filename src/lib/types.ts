@@ -31,6 +31,8 @@ export type Exercise = {
 };
 
 export type ExerciseGuide = {
+  benefit: string;
+  longTermBenefit: string;
   image?: string;
   equipment: string;
   setup: string;
