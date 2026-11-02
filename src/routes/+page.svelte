@@ -1123,15 +1123,17 @@
             {@const exerciseEffort = exerciseLogs[0]?.effort ?? null}
             {@const exerciseEffortLevel = effortLevel(exerciseEffort)}
             <section class="card overflow-hidden {exerciseSkipped ? 'opacity-70' : ''}">
-              <div class="flex flex-wrap items-start justify-between gap-3 p-5 pb-3">
-                <div class="min-w-0 flex-1 basis-40"><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
-                <div class="flex max-w-[12rem] shrink-0 flex-wrap items-center justify-end gap-2">
-                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
-                  <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
-                  <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exercise, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
-                  <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exerciseLogs.length} × {exercise.reps}</span>
+              <header class="p-4">
+                <div class="flex items-baseline gap-3">
+                  <span class="shrink-0 text-xs font-semibold tabular-nums text-muted">{String(exerciseIndex + 1).padStart(2, '0')}</span>
+                  <h2 class="min-w-0 text-lg font-bold leading-snug tracking-[-0.03em]">{exercise.name}</h2>
                 </div>
-              </div>
+                <div class="mt-4 grid grid-cols-3 gap-2" role="group" aria-label={`Azioni per ${exercise.name}`}>
+                  <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cream px-2 text-xs font-semibold text-moss transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss" onclick={() => activeGuide = { type: activeSession!.type, exercise, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={16} /> Guida</button>
+                  <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold text-muted transition hover:bg-cream active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`}><History size={16} /> Storico</button>
+                  <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss disabled:opacity-40 {exerciseSkipped ? 'bg-amber-50 text-amber-800' : 'text-muted hover:bg-cream'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`}>{#if exerciseSkipped}<RotateCcw size={16} /> Ripristina{:else}<X size={16} /> Escludi{/if}</button>
+                </div>
+              </header>
               {#if exerciseMode === 'strength' && !activeSession.trainingContext && !activeSession.completedAt && !activeSession.skippedReason}
                 <p class="px-5 pb-3 text-xs leading-5 text-moss">{suggestionFor(activeSession.type, exercise, activeSession.date).message}</p>
               {/if}
