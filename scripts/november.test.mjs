@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {workouts,schedule} from '../src/lib/program.ts';
 import {cervicalGuides} from '../src/lib/cervical-guides.ts';
-import {cervicalExercises,cervicalBlocked,newTrainingContext,novemberExercises,novemberWeek,seedLogs,sessionExercises,targetBlock,runTarget,previousExercise} from '../src/lib/november.ts';
+import {cervicalExercises,newTrainingContext,novemberExercises,novemberWeek,seedLogs,sessionExercises,runTarget,previousExercise} from '../src/lib/november.ts';
 import {validateSession} from '../src/lib/session-validation.ts';
 
 const expected={
@@ -15,7 +15,6 @@ function session(date='2026-11-03',type='A') {
  const trainingContext=newTrainingContext(date,type);
  return {date,type,completedAt:null,skippedReason:null,skippedAt:null,durationMinutes:null,cardioMinutes:null,notes:'',trainingContext,logs:Object.fromEntries(trainingContext.exercises.map(e=>[e.id,seedLogs(e)]))};
 }
-function approve(s,id){const c=s.trainingContext;c.physioApproved=true;c.painBefore=0;c.painAfter=0;c.decisions[id]={technique:true,tolerated:true,demonstrated:true,band:{configuration:'Configurazione dimostrata',anchor:'Ancoraggio validato'}};}
 
 test('all twelve dates, weekday types, complete strength targets and exact sets',()=>{
  const actual=schedule('2026-08-18').filter(d=>d.date>='2026-11-02'&&d.date<='2026-11-29');
@@ -63,45 +62,19 @@ test('legacy data and exercise definitions remain untouched; completed November 
  assert.ok(sessionExercises({...old,date:'2026-11-03'}).some(e=>e.id==='neck-iso'));
  assert.equal(newTrainingContext('2026-10-31','C'),null);assert.equal(newTrainingContext('2026-11-30','A'),null);
 });
-test('symptoms, pain, no consent and missing setup prevent cervical activation',()=>{
- const s=session();const id='band-neck-flexion';assert.ok(cervicalBlocked(s.trainingContext,id));approve(s,id);assert.equal(cervicalBlocked(s.trainingContext,id),null);
- for(const f of ['symptoms','delayedSymptoms']){s.trainingContext[f]=true;assert.ok(cervicalBlocked(s.trainingContext,id));s.trainingContext[f]=false;}
- s.trainingContext.painBefore=2;assert.ok(cervicalBlocked(s.trainingContext,id));
-});
-test('progression requires confirmation, holds after 4/4, 3/4 load increases and unfinished prior sessions',()=>{
- const s=session();const id='squat',e=s.trainingContext.exercises.find(e=>e.id===id);
- const prev={...session('2026-11-03'),date:'2026-10-27',trainingContext:null,completedAt:'done'};
- prev.logs[id]=seedLogs(e).map(l=>({...l,reps:10,weight:50,effort:2,completed:true}));
- assert.ok(targetBlock(e,prev,s.trainingContext));approve(s,id);assert.equal(targetBlock(e,prev,s.trainingContext),null);
- for(const effort of [3,4]){prev.logs[id].forEach(l=>l.effort=effort);assert.ok(targetBlock(e,prev,s.trainingContext));}
- prev.logs[id].forEach(l=>l.effort=2);prev.completedAt=null;assert.ok(targetBlock(e,prev,s.trainingContext));
-});
-test('failed previous target and cervical intolerance stop advancing',()=>{
- const next=session('2026-11-10'),id='band-neck-flexion',e=next.trainingContext.exercises.find(e=>e.id===id);approve(next,id);
- const prev=session();approve(prev,id);prev.completedAt='done';prev.logs[id].forEach(l=>{l.completed=true;l.effort=2;});
- assert.equal(targetBlock(e,prev,next.trainingContext),null);
- prev.logs[id][0].reps=4;assert.ok(targetBlock(e,prev,next.trainingContext));prev.logs[id][0].reps=5;
- prev.trainingContext.painAfter=null;assert.ok(targetBlock(e,prev,next.trainingContext));
- assert.ok(targetBlock(cervicalExercises(3)[0],undefined,next.trainingContext));
-});
-test('API validation preserves NR, seconds and sides and rejects fake kg and bypassed consent',()=>{
+test('API validation preserves NR, seconds and sides and rejects fake kg without requiring consent checkboxes',()=>{
  const s=session('2026-11-05','B'),id='band-neck-lateral';assert.equal(validateSession(s),null);
- s.logs[id][0].completed=true;assert.ok(validateSession(s));approve(s,id);assert.equal(validateSession(s),null);
+ s.logs[id][0].completed=true;assert.equal(validateSession(s),null);
  s.logs[id][0].weight=1;assert.ok(validateSession(s));s.logs[id][0].weight=null;
  s.logs[id][0].side=null;assert.ok(validateSession(s));s.logs[id][0].side='left';
  s.logs[id][0].holdSeconds=0;assert.ok(validateSession(s));
 });
-test('symptoms after performed sets can be saved without authorizing another set',()=>{
- const s=session(),id='band-neck-flexion';approve(s,id);s.logs[id][0].completed=true;
- const old=structuredClone(s.logs);s.trainingContext.symptoms=true;s.trainingContext.painAfter=4;
- assert.equal(validateSession(s,old),null);s.logs[id][1].completed=true;assert.ok(validateSession(s,old));
-});
-test('cannot finish a session with unperformed sets or missing post-session pain',()=>{
- const s=session();assert.ok(validateSession({...s,completed:true}));
- for(const logs of Object.values(s.logs))for(const l of logs)l.skipped=true;
+test('can record and finish cervical work without the removed approval and pain forms',()=>{
+ const s=session();for(const logs of Object.values(s.logs))for(const l of logs)l.skipped=true;
+ const id='chin-nod';s.logs[id].forEach(l=>{l.skipped=false;l.completed=true;});
+ assert.equal(s.trainingContext.physioApproved,false);assert.equal(s.trainingContext.painAfter,null);
  assert.equal(validateSession({...s,completed:true}),null);
- const id='chin-nod';approve(s,id);s.logs[id].forEach(l=>{l.skipped=false;l.completed=true;});s.trainingContext.painAfter=null;
- assert.ok(validateSession({...s,completed:true}));s.trainingContext.painAfter=0;assert.equal(validateSession({...s,completed:true}),null);
+ s.logs[id][0].completed=false;assert.ok(validateSession({...s,completed:true}));
 });
 test('running Wednesday targets, plan bounds, and latest partial workout retained',()=>{
  for(const [d,km]of [['04',1.5],['11',1.8],['18',2.1],['25',2.5],['02',1.3],['06',1.3]])assert.equal(runTarget(`2026-11-${d}`),km);

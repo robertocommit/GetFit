@@ -2,10 +2,9 @@
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
-  import CervicalSessionPanel from '$lib/components/CervicalSessionPanel.svelte';
   import CervicalExerciseControls from '$lib/components/CervicalExerciseControls.svelte';
   import { cervicalGuides } from '$lib/cervical-guides';
-  import { cervicalBlocked, newTrainingContext, novemberWeek, previousExercise, runTarget, seedLogs, sessionExercises, targetBlock } from '$lib/november';
+  import { newTrainingContext, novemberWeek, previousExercise, runTarget, seedLogs, sessionExercises } from '$lib/november';
   import { exerciseSuggestion } from '$lib/progression';
   import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
 
@@ -419,33 +418,6 @@
   }
 
 
-  function confirmDecision(id:string, field:'technique'|'tolerated', value:boolean) {
-    if (!activeSession?.trainingContext) return;
-    activeSession.trainingContext.decisions[id] ??= {};
-    activeSession.trainingContext.decisions[id][field]=value;
-    queueAutoSave();
-  }
-  function targetReason(exercise:Exercise) {
-    if (!activeSession?.trainingContext) return 'Programma non disponibile';
-    return targetBlock(exercise,previousExercise(Object.values(sessions),activeSession.date,activeSession.type,exercise.id),activeSession.trainingContext);
-  }
-  function applyTarget(exercise:Exercise) {
-    if (!activeSession?.trainingContext || activeSession.completedAt || activeSession.skippedReason || !exercise.target || targetReason(exercise)) return;
-    if (activeSession.logs[exercise.id].some(l=>l.completed)) return;
-    for (const log of activeSession.logs[exercise.id]) {
-      log.reps=exercise.target.reps;log.weight=exercise.target.weight;
-      if (exercise.target.holdSeconds) log.holdSeconds=exercise.target.holdSeconds;
-    }
-    activeSession.trainingContext.decisions[exercise.id].applied={...exercise.target,at:new Date().toISOString()};
-    queueAutoSave();
-  }
-  function repeatExercise(exercise:Exercise) {
-    if (!activeSession?.trainingContext || activeSession.completedAt || activeSession.skippedReason || activeSession.logs[exercise.id].some(l=>l.completed)) return;
-    const previous=previousExercise(Object.values(sessions),activeSession.date,activeSession.type,exercise.id);
-    activeSession.logs[exercise.id]=seedLogs(exercise,previous?.logs[exercise.id]);
-    if (activeSession.trainingContext.decisions[exercise.id]) delete activeSession.trainingContext.decisions[exercise.id].applied;
-    queueAutoSave();
-  }
   function bandDescription(session:Session,id:string) {
     const band=session.trainingContext?.decisions[id]?.band;
     return band ? Object.values(band).filter(Boolean).join(' · ') : 'Senza resistenza esterna';
@@ -691,9 +663,8 @@
     queueAutoSave();
   }
 
-  function toggleSet(set: SetLog, exercise: Exercise) {
+  function toggleSet(set: SetLog) {
     if (!activeSession || activeSession.completedAt || activeSession.skippedReason || set.skipped) return;
-    if (!set.completed && exercise.tracking === 'cervical' && activeSession.trainingContext && cervicalBlocked(activeSession.trainingContext,exercise.id)) return;
     set.completed = !set.completed;
     queueAutoSave(0);
   }
@@ -1117,10 +1088,6 @@
         <h1 class="text-4xl font-extrabold tracking-[-0.06em]">{workouts[activeSession.type].title}</h1>
         <p class="mt-2 text-sm text-muted">{workouts[activeSession.type].focus}</p>
 
-        {#if activeSession.trainingContext}
-          <CervicalSessionPanel bind:context={activeSession.trainingContext} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onchange={() => queueAutoSave()} />
-        {/if}
-
         {#if activeSession.completedAt}
           <section class="mt-6 flex items-center gap-3 rounded-[1.75rem] bg-ink p-5 text-white">
             <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-lime"><LockKeyhole size={19} /></span>
@@ -1165,23 +1132,6 @@
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exerciseLogs.length} × {exercise.reps}</span>
                 </div>
               </div>
-              {#if exercise.target && activeSession.trainingContext}
-                <div class="mx-4 mb-4 rounded-2xl bg-cream p-4">
-                  <p class="text-xs font-bold text-moss">Obiettivo programmato · settimana {(novemberWeek(activeSession.date) ?? 0)+1}</p>
-                  <p class="mt-2 text-sm">{exercise.sets} × {exercise.reps}{exercise.target.weight !== null ? ` · ${exercise.target.weight} ${exercise.unit}` : ''}{exercise.target.perSide ? ' · entrambi i lati' : ''}</p>
-                  <p class="mt-2 text-xs text-muted">Obiettivo condizionato. I campi sotto sono i valori effettivi; puoi mantenere, ripetere o modificarli manualmente.</p>
-                  {#if activeSession.trainingContext.decisions[exercise.id]?.applied}<p class="mt-2 text-xs font-bold text-moss">Obiettivo approvato e applicato il {new Date(activeSession.trainingContext.decisions[exercise.id].applied!.at).toLocaleDateString('it-IT')}</p>{/if}
-                  {#if !activeSession.completedAt && !activeSession.skippedReason && !exerciseSkipped}
-                    <label class="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 h-5 w-5 shrink-0" checked={activeSession.trainingContext.decisions[exercise.id]?.technique ?? false} onchange={e=>confirmDecision(exercise.id,'technique',e.currentTarget.checked)} />Confermo tecnica adeguata nelle serie precedenti.</label>
-                    <label class="mt-2 flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 h-5 w-5 shrink-0" checked={activeSession.trainingContext.decisions[exercise.id]?.tolerated ?? false} onchange={e=>confirmDecision(exercise.id,'tolerated',e.currentTarget.checked)} />Confermo buona tolleranza, anche nelle ore successive, e verifica nel riscaldamento.</label>
-                    <p class="mt-2 text-xs text-muted">{targetReason(exercise) ?? 'Puoi approvare questo obiettivo; non è obbligatorio.'}</p>
-                    <div class="mt-4 flex flex-wrap gap-2">
-                      <button class="rounded-2xl bg-ink px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={Boolean(targetReason(exercise)) || exerciseLogs.some(l=>l.completed)} onclick={()=>applyTarget(exercise)}>Approva e applica obiettivo</button>
-                      <button class="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm font-bold disabled:opacity-40" disabled={exerciseLogs.some(l=>l.completed)} onclick={()=>repeatExercise(exercise)}>Ripeti ultima seduta / base iniziale</button>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
               {#if exerciseMode === 'strength' && !activeSession.trainingContext && !activeSession.completedAt && !activeSession.skippedReason}
                 <p class="px-5 pb-3 text-xs leading-5 text-moss">{suggestionFor(activeSession.type, exercise, activeSession.date).message}</p>
               {/if}
@@ -1239,7 +1189,7 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped || Boolean(exerciseMode === 'cervical' && activeSession.trainingContext && !set.completed && cervicalBlocked(activeSession.trainingContext,exercise.id))} onclick={() => toggleSet(set, exercise)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
                       {set.side === 'left' ? 'Sinistra ·' : set.side === 'right' ? 'Destra ·' : ''} {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>

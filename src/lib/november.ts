@@ -83,43 +83,6 @@ export function previousExercise(sessions: Session[], date: string, type: Workou
   return sessions.filter(s => s.date < date && s.type === type && s.logs[id]?.length)
     .sort((a,b) => b.date.localeCompare(a.date))[0];
 }
-export function cervicalBlocked(context: TrainingContext, id: string): string | null {
-  if (!context.physioApproved) return 'Prima della prima esecuzione serve l’approvazione del fisioterapista.';
-  if (context.symptoms || context.delayedSymptoms || (context.painBefore ?? 0) > 0 || (context.painAfter ?? 0) > 0) return 'Dolore o sintomi: interrompi il lavoro cervicale e rivaluta con il professionista.';
-  if (context.painBefore === null) return 'Registra il dolore prima della seduta (0–10).';
-  if (id !== 'chin-nod' && !context.decisions[id]?.demonstrated) return 'Configurazione da dimostrare e validare con il fisioterapista prima di attivare l’esercizio.';
-  if (id !== 'chin-nod' && (!context.decisions[id]?.band?.configuration?.trim() || !context.decisions[id]?.band?.anchor?.trim())) return 'Descrivi la configurazione validata e l’ancoraggio o la presa delle estremità.';
-  return null;
-}
-export function targetBlock(exercise: Exercise, previous: Session | undefined, context: TrainingContext): string | null {
-  const decision = context.decisions[exercise.id];
-  if (context.symptoms || context.delayedSymptoms || (context.painBefore ?? 0) > 0 || (context.painAfter ?? 0) > 0) return 'Progressione sospesa per dolore o sintomi.';
-  if (!decision?.technique || !decision?.tolerated) return 'Conferma tecnica adeguata e buona tolleranza prima di valutare l’obiettivo.';
-  if (exercise.tracking === 'cervical') {
-    const blocked = cervicalBlocked(context,exercise.id);
-    if (blocked) return blocked;
-    if (!previous && ((exercise.target?.holdSeconds ?? 0) > 5 || (exercise.target?.reps ?? 0) > (['chin-nod','band-neck-retraction'].includes(exercise.id) ? 8 : 5))) return 'Prima esecuzione: usa la base della settimana 1, senza saltare le fasi.';
-  }
-  if (previous) {
-    const logs = previous.logs[exercise.id] ?? [];
-    if (!previous.completedAt || logs.length < exercise.sets || logs.some(l => !l.completed || l.skipped)) return 'Ultima seduta incompleta: mantieni o riduci e ripeti il lavoro.';
-    if (logs.some(l => l.effort === 4)) return 'Ultima fatica 4/4: consolida o riduci, senza aumenti suggeriti.';
-    const priorTarget = sessionExercises(previous).find(e => e.id === exercise.id)?.target;
-    if (priorTarget && logs.some(l => (l.reps ?? -1) < (priorTarget.reps ?? 0) || (l.holdSeconds ?? 0) < (priorTarget.holdSeconds ?? 0))) return 'Obiettivo precedente non completato: ripeti la settimana.';
-    const minimum = Math.min(...logs.map(l => l.reps ?? 0));
-    if (exercise.target?.weight !== null && exercise.target?.weight !== undefined && logs.some(l => l.weight !== null && exercise.target!.weight! > l.weight!) && logs.some(l => l.effort === 3)) return 'Fatica 3/4: consolida prima le ripetizioni allo stesso carico.';
-    if (exercise.tracking === 'cervical') {
-      const c = previous.trainingContext;
-      if (!c || !c.decisions[exercise.id]?.tolerated || c.symptoms || c.delayedSymptoms || c.painAfter !== 0 || c.painBefore !== 0) return 'Prima conferma la buona tolleranza della seduta precedente, anche nelle ore successive.';
-      const oldReps = Math.min(...logs.map(l=>l.reps ?? 0));
-      const oldHold = Math.min(...logs.map(l=>l.holdSeconds ?? 0));
-      if ((exercise.target?.reps ?? 0) > oldReps && (exercise.target?.holdSeconds ?? 0) > oldHold) return 'Non aumentare insieme ripetizioni e durata: ripeti la fase intermedia.';
-      if (logs.some(l => l.effort === null || l.effort > 2)) return 'Consolida: servono fatica 1–2/4 e tolleranza confermata per progredire.';
-    }
-    if (minimum === 0) return 'Ripetizioni precedenti non registrate: verifica prima di progredire.';
-  }
-  return null;
-}
 export function seedLogs(exercise: Exercise, previous: SetLog[] = []): SetLog[] {
   const cervical = exercise.tracking === 'cervical';
   const reps = cervical ? 5 : exercise.tracking === 'carry' ? 1 : exercise.tracking === 'mobility' ? null : exercise.minReps ?? (Number(exercise.reps.match(/\d+/)?.[0] ?? 0) || null);

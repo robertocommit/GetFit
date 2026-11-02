@@ -1,7 +1,7 @@
-import { cervicalBlocked, cervicalIds, novemberExercises } from './november.ts';
-import type { Session, TrainingContext, WorkoutType, SetLog } from './types';
+import { cervicalIds, novemberExercises } from './november.ts';
+import type { Session, TrainingContext, WorkoutType } from './types';
 const numberOrNull = (v: unknown, min: number, max = Infinity, integer = false) => v === null || v === undefined || (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max && (!integer || Number.isInteger(v)));
-export function validateSession(body: Session & {completed?: boolean}, previousLogs: Record<string,SetLog[]> = {}): string | null {
+export function validateSession(body: Session & {completed?: boolean}): string | null {
   if (!body.logs || typeof body.logs !== 'object' || Array.isArray(body.logs)) return 'Serie non valide';
   if (!numberOrNull(body.durationMinutes,0,10000,true) || !numberOrNull(body.cardioMinutes,0,10000,true)) return 'Durata non valida';
   const c = body.trainingContext;
@@ -23,8 +23,6 @@ export function validateSession(body: Session & {completed?: boolean}, previousL
       if (cervicalIds.includes(id)) {
         if (!c || l.weight !== null) return 'Il carico cervicale numerico deve restare nullo';
         if (l.completed && !l.skipped) {
-          const alreadyPerformed = previousLogs[id]?.some(old => old.setNumber === l.setNumber && old.completed && !old.skipped);
-          if (!alreadyPerformed && cervicalBlocked(c,id)) return cervicalBlocked(c,id);
           if (!l.reps || !l.holdSeconds || (id === 'band-neck-lateral' && !l.side) || (id !== 'band-neck-lateral' && l.side)) return 'Registra ripetizioni, durata e lato corretti';
         }
       }
@@ -36,7 +34,6 @@ export function validateSession(body: Session & {completed?: boolean}, previousL
       if (!logs?.length || logs.length < e.sets * (e.target?.perSide ? 2 : 1) || !logs.every(l => l.completed || l.skipped)) return 'Completa o escludi ogni serie prima di chiudere';
       if (e.id === 'band-neck-lateral' && !['left','right'].every(side => logs.filter(l => l.side === side).length >= e.sets)) return 'Registra entrambi i lati';
     }
-    if (c.exercises.some(e => cervicalIds.includes(e.id) && body.logs[e.id]?.some(l => l.completed && !l.skipped)) && c.painAfter === null) return 'Registra il dolore dopo la seduta';
   }
   return null;
 }

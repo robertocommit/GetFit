@@ -1,4 +1,4 @@
-import type { SetLog, TrainingContext } from '$lib/types';
+import type { TrainingContext } from '$lib/types';
 import { validateSession } from '$lib/session-validation';
 import { newTrainingContext } from '$lib/november';
 import { pool } from '$lib/server/db';
@@ -42,10 +42,7 @@ export async function PUT({ request }) {
       body.trainingContext.exercises = existing.rows[0]?.training_context?.exercises
         ?? newTrainingContext(body.date, body.type)?.exercises;
     }
-    const prior = await client.query('SELECT exercise_id, set_number, completed, skipped FROM set_logs WHERE session_id = (SELECT id FROM workout_sessions WHERE workout_date = $1)', [body.date]);
-    const priorLogs: Record<string,SetLog[]> = {};
-    for (const row of prior.rows) (priorLogs[row.exercise_id] ??= []).push({setNumber:row.set_number,completed:row.completed,skipped:row.skipped,reps:null,weight:null,effort:null});
-    const validationError = validateSession(body, priorLogs);
+    const validationError = validateSession(body);
     if (validationError) {
       await client.query('ROLLBACK');
       return json({ error: validationError }, { status: 400 });
