@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
 import {workouts,schedule} from '../src/lib/program.ts';
 import {cervicalGuides} from '../src/lib/cervical-guides.ts';
 import {cervicalExercises,newTrainingContext,novemberExercises,novemberWeek,seedLogs,sessionExercises,runTarget,previousExercise} from '../src/lib/november.ts';
@@ -30,11 +31,13 @@ test('all twelve dates, weekday types, complete strength targets and exact sets'
   assert.ok(!ex.some(e=>['neck-iso','neck-lateral'].includes(e.id)));
  });
 });
-test('five complete cervical guides, safe visual fallback and no manual resistance alternative',()=>{
+test('five complete cervical guides with local WebP illustrations and descriptive alternatives',()=>{
  for(const e of cervicalExercises(0)){
   const g=cervicalGuides[e.id];assert.ok(g);for(const k of ['equipment','setup','steps','breathing','mistakes','safety','benefit','longTermBenefit'])assert.ok(g[k]?.length);
   assert.ok(e.technicalName&&e.muscles);assert.equal(e.increment,null);
-  assert.equal(g.requiresDemonstration,e.id!=='chin-nod');
+  assert.ok(g.image?.endsWith('.webp'));assert.ok(g.imageAlt?.length>30);
+  const image=readFileSync(new URL('../static'+g.image,import.meta.url));
+  assert.equal(image.toString('ascii',0,4),'RIFF');assert.equal(image.toString('ascii',8,12),'WEBP');
  }
 });
 test('exact cervical dose progression and two separate lateral sides',()=>{

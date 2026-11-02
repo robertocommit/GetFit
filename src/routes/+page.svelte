@@ -1372,7 +1372,7 @@
 
       <main class="px-5 pt-5">
         {#if guide.image}
-          <img class="w-full rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" src={guide.image} alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`} />
+          <img class="w-full rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" src={guide.image} decoding="async" alt={guide.imageAlt ?? `Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`} />
         {:else if guide.requiresDemonstration}
           <section class="card p-4"><h2 class="text-lg font-bold">Dimostrazione del montaggio necessaria</h2><p class="mt-2 text-sm leading-6 text-muted">Configurazione visiva non verificata per il tuo caso: prima di attivare l’esercizio, chiedi al fisioterapista di dimostrare posizione della testa, direzione della tensione, punto di ancoraggio e percorso sicuro della banda. Non ricostruire il montaggio da immagini generiche.</p></section>
         {:else}
