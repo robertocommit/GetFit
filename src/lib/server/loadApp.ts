@@ -1,3 +1,4 @@
+import type { TrainingContext } from '$lib/types';
 import { query } from '$lib/server/db';
 
 export async function loadAppData() {
@@ -5,15 +6,15 @@ export async function loadAppData() {
   const sessions = await query<{
     workout_date: string; workout_type: 'A' | 'B' | 'C'; completed_at: string | null;
     skipped_reason: 'forza_maggiore' | 'pigrizia' | 'vacanza' | null; skipped_at: string | null;
-    duration_minutes: number | null; cardio_minutes: number | null; notes: string;
+    duration_minutes: number | null; cardio_minutes: number | null; notes: string; training_context: TrainingContext | null;
   }>(`SELECT to_char(workout_date, 'YYYY-MM-DD') AS workout_date, workout_type, completed_at::text,
-      skipped_reason, skipped_at::text, duration_minutes, cardio_minutes, notes
+      skipped_reason, skipped_at::text, duration_minutes, cardio_minutes, notes, training_context
       FROM workout_sessions ORDER BY workout_date`);
   const logs = await query<{
     workout_date: string; exercise_id: string; set_number: number; reps: number | null;
-    weight: string | null; effort: number | null; completed: boolean; skipped: boolean;
+    weight: string | null; effort: number | null; completed: boolean; skipped: boolean; hold_seconds: number | null; side: 'left' | 'right' | null;
   }>(`SELECT to_char(s.workout_date, 'YYYY-MM-DD') AS workout_date, l.exercise_id, l.set_number,
-      l.reps, l.weight::text, l.effort, l.completed, l.skipped FROM set_logs l
+      l.reps, l.weight::text, l.effort, l.completed, l.skipped, l.hold_seconds, l.side FROM set_logs l
       JOIN workout_sessions s ON s.id = l.session_id ORDER BY s.workout_date, l.exercise_id, l.set_number`);
   const activities = await query<{
     activity_date: string; activity_type: 'run' | 'wing_chun'; duration_minutes: number | null;

@@ -1,4 +1,5 @@
-import { query } from '$lib/server/db';
+import { novemberWeek } from '$lib/november';
+import { pool, query } from '$lib/server/db';
 import { json } from '@sveltejs/kit';
 
 const SKIP_REASONS = ['forza_maggiore', 'pigrizia', 'vacanza'];
@@ -36,7 +37,21 @@ export async function PUT({ request }) {
     return json({ error: 'Dettagli attività non validi' }, { status: 400 });
   }
 
-  const result = await query<{ completed_at: string }>(
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (body.type === 'run' && body.sprintCompleted && novemberWeek(body.date) !== null) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('getfit-sprint-' || date_trunc('week', $1::date)::date::text))", [body.date]);
+      const other = await client.query(`SELECT 1 FROM activity_logs WHERE activity_type = 'run'
+        AND activity_date <> $1::date AND activity_date >= date_trunc('week', $1::date)::date
+        AND activity_date < date_trunc('week', $1::date)::date + 7 AND completed_at IS NOT NULL AND sprint_completed`, [body.date]);
+      const current = await client.query('SELECT sprint_completed FROM activity_logs WHERE activity_date=$1 AND activity_type=$2', [body.date,body.type]);
+      if (other.rowCount && !current.rows[0]?.sprint_completed) {
+        await client.query('ROLLBACK');
+        return json({error:'È già registrata una corsa con sprint questa settimana. Puoi salvare la corsa senza sprint.'},{status:400});
+      }
+    }
+  const result = await client.query<{ completed_at: string }>(
     `INSERT INTO activity_logs (activity_date, activity_type, duration_minutes, distance_km, rpe, sprint_completed, notes, completed_at, skipped_reason, skipped_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, now(), NULL, NULL, now())
      ON CONFLICT (activity_date, activity_type) DO UPDATE SET
@@ -47,7 +62,13 @@ export async function PUT({ request }) {
     [body.date, body.type, durationMinutes, distanceKm, rpe, Boolean(body.sprintCompleted), body.notes ?? '']
   );
 
+  await client.query('COMMIT');
   return json({ ok: true, completedAt: result.rows[0].completed_at, skippedReason: null, skippedAt: null });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+    return json({error:'Impossibile salvare l’attività'},{status:500});
+  } finally { client.release(); }
 }
 
 export async function DELETE({ request }) {

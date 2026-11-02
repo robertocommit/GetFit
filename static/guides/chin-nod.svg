@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 320" role="img" aria-labelledby="title desc">
+<title id="title">Chin nod supino: testa appoggiata, piccolo cenno del mento</title>
+<desc id="desc">Schema di controllo motorio senza resistenza esterna. Testa e busto appoggiati; un piccolo arco indica il cenno del mento, senza sollevare la testa. La configurazione va validata dal fisioterapista.</desc>
+<rect width="640" height="320" fill="#F6F7F2"/>
+<g fill="none" stroke="#315B47" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M55 224H585"/>
+<path d="M130 214C90 214 75 183 91 157C104 137 140 133 158 154L169 166L184 173L170 183L164 207L141 213"/>
+<path d="M164 207L209 207Q230 176 291 185L367 207L434 136L493 210H545"/>
+<path d="M175 165Q194 177 186 192" stroke-dasharray="4 7"/>
+<path d="M184 186L185 195L195 190"/>
+</g>
+<g fill="#315B47" font-family="sans-serif" text-anchor="middle">
+<text x="320" y="42" font-size="23">Piccolo cenno del mento</text>
+<text x="320" y="74" font-size="18">Testa appoggiata · nessun elastico</text>
+<text x="320" y="274" font-size="18">Schema indicativo da validare con il fisioterapista</text>
+</g></svg>

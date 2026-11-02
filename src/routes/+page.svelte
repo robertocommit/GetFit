@@ -2,8 +2,14 @@
   import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
+  import CervicalSessionPanel from '$lib/components/CervicalSessionPanel.svelte';
+  import CervicalExerciseControls from '$lib/components/CervicalExerciseControls.svelte';
+  import { cervicalGuides } from '$lib/cervical-guides';
+  import { cervicalBlocked, newTrainingContext, novemberWeek, previousExercise, runTarget, seedLogs, sessionExercises, targetBlock } from '$lib/november';
   import { exerciseSuggestion } from '$lib/progression';
   import type { ActivityLog, ActivityType, Exercise, Session, SetLog, SkipReason, WorkoutType } from '$lib/types';
+
+  const allGuides = { ...exerciseGuides, ...cervicalGuides };
 
   let { data, initialWorkoutDate = null } = $props<{ data: any; initialWorkoutDate?: string | null }>();
   type ContributionStatus = 'outside' | 'rest' | 'completed' | 'partial' | 'missed' | 'skipped' | 'scheduled';
@@ -30,6 +36,7 @@
         durationMinutes: row.duration_minutes,
         cardioMinutes: row.cardio_minutes,
         notes: row.notes,
+        trainingContext: row.training_context ?? null,
         logs: {}
       };
     }
@@ -43,7 +50,9 @@
         weight: log.weight === null ? null : Number(log.weight),
         effort: log.effort,
         completed: log.completed,
-        skipped: Boolean(log.skipped)
+        skipped: Boolean(log.skipped),
+        holdSeconds: log.hold_seconds ?? null,
+        side: log.side ?? null
       });
     }
     return result;
@@ -90,7 +99,7 @@
   let initialWorkoutOpened = false;
   let toast = $state('');
   let infoOpen = $state(false);
-  let activeGuide = $state<{ type: WorkoutType; exerciseId: string; index: number } | null>(null);
+  let activeGuide = $state<{ type: WorkoutType; exercise: Exercise; exerciseId: string; index: number } | null>(null);
   let historyExercise = $state<{ exercise: Exercise; beforeDate: string } | null>(null);
   let sessions = $state<Record<string, Session>>(initialSessions());
   let activities = $state<Record<string, ActivityLog>>(initialActivities());
@@ -254,7 +263,7 @@
       skippedReason: null,
       skippedAt: null,
       durationMinutes: null,
-      distanceKm: type === 'run' ? 1.3 : null,
+      distanceKm: type === 'run' ? (novemberWeek(date) === null ? 1.3 : null) : null,
       rpe: null,
       sprintCompleted: false,
       notes: ''
@@ -271,14 +280,14 @@
       const response = await fetch('/api/activities', {
         method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(activity)
       });
-      if (!response.ok) throw new Error('Salvataggio non riuscito');
       const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Salvataggio non riuscito');
       const saved = { ...activity, completedAt: result.completedAt ?? null, skippedReason: result.skippedReason ?? null, skippedAt: result.skippedAt ?? null };
       activities[activityKey(saved.date, saved.type)] = saved;
       activities = { ...activities };
       return true;
-    } catch {
-      showToast('Attività non salvata');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Attività non salvata');
       return false;
     } finally {
       activitySaving = false;
@@ -409,6 +418,45 @@
     }
   }
 
+
+  function confirmDecision(id:string, field:'technique'|'tolerated', value:boolean) {
+    if (!activeSession?.trainingContext) return;
+    activeSession.trainingContext.decisions[id] ??= {};
+    activeSession.trainingContext.decisions[id][field]=value;
+    queueAutoSave();
+  }
+  function targetReason(exercise:Exercise) {
+    if (!activeSession?.trainingContext) return 'Programma non disponibile';
+    return targetBlock(exercise,previousExercise(Object.values(sessions),activeSession.date,activeSession.type,exercise.id),activeSession.trainingContext);
+  }
+  function applyTarget(exercise:Exercise) {
+    if (!activeSession?.trainingContext || activeSession.completedAt || activeSession.skippedReason || !exercise.target || targetReason(exercise)) return;
+    if (activeSession.logs[exercise.id].some(l=>l.completed)) return;
+    for (const log of activeSession.logs[exercise.id]) {
+      log.reps=exercise.target.reps;log.weight=exercise.target.weight;
+      if (exercise.target.holdSeconds) log.holdSeconds=exercise.target.holdSeconds;
+    }
+    activeSession.trainingContext.decisions[exercise.id].applied={...exercise.target,at:new Date().toISOString()};
+    queueAutoSave();
+  }
+  function repeatExercise(exercise:Exercise) {
+    if (!activeSession?.trainingContext || activeSession.completedAt || activeSession.skippedReason || activeSession.logs[exercise.id].some(l=>l.completed)) return;
+    const previous=previousExercise(Object.values(sessions),activeSession.date,activeSession.type,exercise.id);
+    activeSession.logs[exercise.id]=seedLogs(exercise,previous?.logs[exercise.id]);
+    if (activeSession.trainingContext.decisions[exercise.id]) delete activeSession.trainingContext.decisions[exercise.id].applied;
+    queueAutoSave();
+  }
+  function bandDescription(session:Session,id:string) {
+    const band=session.trainingContext?.decisions[id]?.band;
+    return band ? Object.values(band).filter(Boolean).join(' · ') : 'Senza resistenza esterna';
+  }
+  function sprintUsed(date:string) {
+    if (novemberWeek(date)===null) return false;
+    const d=parseLocalDate(date);d.setDate(d.getDate()-((d.getDay()+6)%7));const monday=localKey(d);
+    d.setDate(d.getDate()+6);const sunday=localKey(d);
+    return Object.values(activities).some(a=>a.type==='run' && a.date!==date && a.date>=monday && a.date<=sunday && a.completedAt && a.sprintCompleted);
+  }
+
   function latestLogs(exerciseId: string, beforeDate: string, type?: WorkoutType) {
     return Object.values(sessions)
       .filter((session) => session.date < beforeDate && session.completedAt && (!type || session.type === type) && session.logs[exerciseId]?.some((set) => set.completed))
@@ -437,8 +485,24 @@
     }
     const existing = sessions[date];
     const logs: Record<string, SetLog[]> = {};
-    for (const exercise of workouts[type].exercises) {
+    const draft = existing?.completedAt ? null : readDraft(date, type);
+    const context = existing ? existing.trainingContext ?? null : draft?.trainingContext ?? newTrainingContext(date,type);
+    const exercises = existing ? sessionExercises(existing) : context?.exercises ?? workouts[type].exercises;
+    if (!existing && !draft && context) {
+      const priorContext = Object.values(sessions).filter(s=>s.date<date && s.completedAt && s.trainingContext).sort((a,b)=>b.date.localeCompare(a.date))[0]?.trainingContext;
+      context.physioApproved = priorContext?.physioApproved ?? false;
+      for (const exercise of exercises.filter(e=>e.resistanceType==='resistance_band')) {
+        const prior = previousExercise(Object.values(sessions),date,type,exercise.id)?.trainingContext?.decisions[exercise.id];
+        if (prior?.band) context.decisions[exercise.id] = {band:JSON.parse(JSON.stringify(prior.band)),demonstrated:prior.demonstrated};
+      }
+    }
+    for (const exercise of exercises) {
       const saved = existing?.logs[exercise.id] ?? [];
+      if (context) {
+        const previousSession = previousExercise(Object.values(sessions),date,type,exercise.id);
+        logs[exercise.id] = saved.length ? saved.map(set=>({...set})) : seedLogs(exercise,previousSession?.logs[exercise.id]);
+        continue;
+      }
       const previous = latestLogs(exercise.id, date, type) ?? [];
       const suggestion = suggestionFor(type, exercise, date);
       const weight = suggestion.weight;
@@ -458,7 +522,7 @@
       });
     }
     const serverSession: Session = {
-      date, type, logs,
+      date, type, logs, trainingContext:context,
       completedAt: existing?.completedAt ?? null,
       skippedReason: existing?.skippedReason ?? null,
       skippedAt: existing?.skippedAt ?? null,
@@ -467,7 +531,6 @@
       notes: existing?.notes ?? ''
     };
     if (existing?.completedAt) clearDraft(date);
-    const draft = existing?.completedAt ? null : readDraft(date, type);
     activeSession = draft ? {
       ...serverSession,
       ...draft,
@@ -506,6 +569,8 @@
     if (!logs) return;
     const template = logs.at(-1) ?? logs[0];
     logs.push({
+      holdSeconds: template?.holdSeconds ?? null,
+      side: template?.side ?? null,
       setNumber: logs.length + 1,
       reps: template?.reps ?? null,
       weight: template?.weight ?? null,
@@ -626,8 +691,9 @@
     queueAutoSave();
   }
 
-  function toggleSet(set: SetLog) {
+  function toggleSet(set: SetLog, exercise: Exercise) {
     if (!activeSession || activeSession.completedAt || activeSession.skippedReason || set.skipped) return;
+    if (!set.completed && exercise.tracking === 'cervical' && activeSession.trainingContext && cervicalBlocked(activeSession.trainingContext,exercise.id)) return;
     set.completed = !set.completed;
     queueAutoSave(0);
   }
@@ -664,7 +730,7 @@
   }
 
   function sessionIsComplete(session: Session) {
-    return workouts[session.type].exercises.every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed || set.skipped));
+    return sessionExercises(session).every((exercise) => session.logs[exercise.id]?.length && session.logs[exercise.id].every((set) => set.completed || set.skipped));
   }
 
   async function saveSession(completeSession = false) {
@@ -696,8 +762,8 @@
         const response = await fetch('/api/sessions', {
           method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
         });
-        if (!response.ok) throw new Error('Salvataggio non riuscito');
         const result = await response.json();
+        if (!response.ok) { showToast(result.error ?? 'Salvataggio non riuscito'); throw new Error(result.error); }
         sessionBeingSaved.completedAt = result.completedAt ?? null;
         sessions[sessionBeingSaved.date] = cloneSession(sessionBeingSaved);
         sessions = { ...sessions };
@@ -1051,6 +1117,10 @@
         <h1 class="text-4xl font-extrabold tracking-[-0.06em]">{workouts[activeSession.type].title}</h1>
         <p class="mt-2 text-sm text-muted">{workouts[activeSession.type].focus}</p>
 
+        {#if activeSession.trainingContext}
+          <CervicalSessionPanel bind:context={activeSession.trainingContext} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onchange={() => queueAutoSave()} />
+        {/if}
+
         {#if activeSession.completedAt}
           <section class="mt-6 flex items-center gap-3 rounded-[1.75rem] bg-ink p-5 text-white">
             <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-lime"><LockKeyhole size={19} /></span>
@@ -1079,29 +1149,48 @@
         {/if}
 
         <div class="mt-7 space-y-4">
-          {#each workouts[activeSession.type].exercises as exercise, exerciseIndex}
+          {#each sessionExercises(activeSession) as exercise, exerciseIndex}
             {@const exerciseMode = modeFor(exercise)}
             {@const exerciseLogs = activeSession.logs[exercise.id]}
             {@const exerciseSkipped = exerciseLogs.every((set) => set.skipped)}
             {@const exerciseEffort = exerciseLogs[0]?.effort ?? null}
             {@const exerciseEffortLevel = effortLevel(exerciseEffort)}
             <section class="card overflow-hidden {exerciseSkipped ? 'opacity-70' : ''}">
-              <div class="flex items-start justify-between gap-3 p-5 pb-3">
-                <div><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
+              <div class="flex flex-wrap items-start justify-between gap-3 p-5 pb-3">
+                <div class="min-w-0 flex-1 basis-40"><p class="eyebrow">{String(exerciseIndex + 1).padStart(2, '0')}</p><h2 class="mt-1 text-lg font-bold tracking-[-0.03em]">{exercise.name}</h2></div>
                 <div class="flex max-w-[12rem] shrink-0 flex-wrap items-center justify-end gap-2">
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 bg-white text-moss active:scale-95" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`} title="Storico esercizio"><History size={15} /></button>
                   <button class="grid h-8 w-8 place-items-center rounded-full border border-black/10 {exerciseSkipped ? 'bg-amber-100 text-amber-800' : 'bg-white text-muted'} active:scale-95 disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`} title={exerciseSkipped ? 'Ripristina esercizio' : 'Escludi dalla seduta'}>{#if exerciseSkipped}<RotateCcw size={14} />{:else}<X size={14} />{/if}</button>
-                  <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
+                  <button class="flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-bold text-moss active:scale-95" onclick={() => activeGuide = { type: activeSession!.type, exercise, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={14} /> Guida</button>
                   <span class="rounded-full bg-lime/50 px-3 py-1.5 text-xs font-bold">{exerciseLogs.length} × {exercise.reps}</span>
                 </div>
               </div>
-              {#if exerciseMode === 'strength' && !activeSession.completedAt && !activeSession.skippedReason}
+              {#if exercise.target && activeSession.trainingContext}
+                <div class="mx-4 mb-4 rounded-2xl bg-cream p-4">
+                  <p class="text-xs font-bold text-moss">Obiettivo programmato · settimana {(novemberWeek(activeSession.date) ?? 0)+1}</p>
+                  <p class="mt-2 text-sm">{exercise.sets} × {exercise.reps}{exercise.target.weight !== null ? ` · ${exercise.target.weight} ${exercise.unit}` : ''}{exercise.target.perSide ? ' · entrambi i lati' : ''}</p>
+                  <p class="mt-2 text-xs text-muted">Obiettivo condizionato. I campi sotto sono i valori effettivi; puoi mantenere, ripetere o modificarli manualmente.</p>
+                  {#if activeSession.trainingContext.decisions[exercise.id]?.applied}<p class="mt-2 text-xs font-bold text-moss">Obiettivo approvato e applicato il {new Date(activeSession.trainingContext.decisions[exercise.id].applied!.at).toLocaleDateString('it-IT')}</p>{/if}
+                  {#if !activeSession.completedAt && !activeSession.skippedReason && !exerciseSkipped}
+                    <label class="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 h-5 w-5 shrink-0" checked={activeSession.trainingContext.decisions[exercise.id]?.technique ?? false} onchange={e=>confirmDecision(exercise.id,'technique',e.currentTarget.checked)} />Confermo tecnica adeguata nelle serie precedenti.</label>
+                    <label class="mt-2 flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 h-5 w-5 shrink-0" checked={activeSession.trainingContext.decisions[exercise.id]?.tolerated ?? false} onchange={e=>confirmDecision(exercise.id,'tolerated',e.currentTarget.checked)} />Confermo buona tolleranza, anche nelle ore successive, e verifica nel riscaldamento.</label>
+                    <p class="mt-2 text-xs text-muted">{targetReason(exercise) ?? 'Puoi approvare questo obiettivo; non è obbligatorio.'}</p>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <button class="rounded-2xl bg-ink px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={Boolean(targetReason(exercise)) || exerciseLogs.some(l=>l.completed)} onclick={()=>applyTarget(exercise)}>Approva e applica obiettivo</button>
+                      <button class="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm font-bold disabled:opacity-40" disabled={exerciseLogs.some(l=>l.completed)} onclick={()=>repeatExercise(exercise)}>Ripeti ultima seduta / base iniziale</button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              {#if exerciseMode === 'strength' && !activeSession.trainingContext && !activeSession.completedAt && !activeSession.skippedReason}
                 <p class="px-5 pb-3 text-xs leading-5 text-moss">{suggestionFor(activeSession.type, exercise, activeSession.date).message}</p>
               {/if}
               {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
               {#if exerciseSkipped}<p class="mx-4 mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">Escluso volontariamente da questa seduta. Tocca ↻ per ripristinarlo.</p>{/if}
               <div class="border-t border-black/[0.05] p-4">
-                {#if exerciseMode === 'strength'}
+                {#if exerciseMode === 'cervical' && activeSession.trainingContext}
+                  <CervicalExerciseControls {exercise} bind:logs={activeSession.logs[exercise.id]} bind:context={activeSession.trainingContext} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onchange={() => queueAutoSave()} />
+                {:else if exerciseMode === 'strength'}
                   <p class="eyebrow mb-2">Uguale per tutte le serie</p>
                   <div class="grid grid-cols-2 gap-2">
                     <div class="rounded-2xl bg-cream p-2">
@@ -1150,13 +1239,13 @@
 
                 <div class="mt-3 grid grid-cols-2 gap-2">
                   {#each exerciseLogs as set}
-                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onclick={() => toggleSet(set)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
+                    <button class="flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 font-bold transition disabled:cursor-default {set.completed ? 'bg-moss text-white' : 'bg-cream text-ink'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped || Boolean(exerciseMode === 'cervical' && activeSession.trainingContext && !set.completed && cervicalBlocked(activeSession.trainingContext,exercise.id))} onclick={() => toggleSet(set, exercise)} aria-label={`Completa ${exerciseMode === 'carry' ? 'giro' : 'serie'} ${set.setNumber}`}>
                       <span class="grid h-6 w-6 place-items-center rounded-full {set.completed ? 'bg-white/20' : 'bg-white'}">{#if set.completed}<Check size={14} />{:else}<span class="text-xs">{set.setNumber}</span>{/if}</span>
-                      {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
+                      {set.side === 'left' ? 'Sinistra ·' : set.side === 'right' ? 'Destra ·' : ''} {exerciseMode === 'carry' ? 'Giro' : exerciseMode === 'mobility' ? 'Sequenza' : exerciseMode === 'timed' ? 'Tenuta' : 'Serie'} {set.setNumber}
                     </button>
                   {/each}
                 </div>
-                {#if !activeSession.completedAt && !activeSession.skippedReason && !exerciseSkipped}
+                {#if exerciseMode !== 'cervical' && !activeSession.completedAt && !activeSession.skippedReason && !exerciseSkipped}
                   <div class="mt-2 flex gap-2">
                     <button class="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-dashed border-black/15 px-3 py-2.5 text-xs font-bold text-muted transition active:scale-[0.99]" onclick={() => addSet(exercise.id)} aria-label={`Aggiungi un ${setUnitLabel(exercise)} a ${exercise.name}`}><Plus size={14} /> Aggiungi {setUnitLabel(exercise)}{exerciseLogs.length > exercise.sets ? ` (${exerciseLogs.length})` : ''}</button>
                     {#if exerciseLogs.length > exercise.sets}
@@ -1226,7 +1315,7 @@
           {#if activeActivity.notes.trim()}<p class="mt-1 text-xs leading-5 text-muted">{activeActivity.notes}</p>{/if}
         </div>
       {/if}
-      <p class="mt-5 text-sm leading-6 text-muted">{activeActivity.type === 'run' ? 'Giro standard · 1,3 km · scatto facoltativo negli ultimi 150 metri.' : 'Compila solo quello che ti è utile.'} Salvare significa segnare l’attività come svolta.</p>
+      <p class="mt-5 text-sm leading-6 text-muted">{activeActivity.type === 'run' ? `Obiettivo proposto: ${runTarget(activeActivity.date)} km${parseLocalDate(activeActivity.date).getDay() === 3 ? ' a ritmo facile' : ''}. Confermalo soltanto se ben tollerato; la distanza effettiva resta modificabile.` : 'Compila solo quello che ti è utile.'} Salvare significa segnare l’attività come svolta.</p>
       <div class="mt-5">
         <label class="block rounded-2xl bg-cream p-3"><span class="eyebrow">Durata</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="1" placeholder="—" value={activeActivity.durationMinutes ?? ''} oninput={(event) => activeActivity!.durationMinutes = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">min</span></span></label>
       </div>
@@ -1241,9 +1330,10 @@
       </div>
 
       {#if activeActivity.type === 'run'}
+        {#if !activeActivity.completedAt && novemberWeek(activeActivity.date) !== null}<button type="button" class="mt-4 rounded-2xl bg-cream px-3 py-2 text-sm font-bold text-moss" onclick={()=>activeActivity!.distanceKm=runTarget(activeActivity!.date)}>Usa l’obiettivo di {runTarget(activeActivity.date)} km</button>{/if}
         <div class="mt-3 grid grid-cols-2 gap-3">
           <label class="rounded-2xl bg-cream p-3"><span class="eyebrow">Distanza</span><span class="mt-1 flex items-center gap-1"><input class="min-w-0 w-full bg-transparent text-xl font-bold outline-none" type="number" min="0.1" step="0.1" value={activeActivity.distanceKm ?? ''} oninput={(event) => activeActivity!.distanceKm = event.currentTarget.value === '' ? null : Number(event.currentTarget.value)} /><span class="text-xs text-muted">km</span></span></label>
-          <label class="flex cursor-pointer items-center justify-between gap-2 rounded-2xl bg-cream p-3"><span><span class="eyebrow">Scatto finale</span><span class="mt-1 block text-xs text-muted">Ultimi 150 metri</span></span><input class="h-5 w-5 accent-[#315B47]" type="checkbox" checked={activeActivity.sprintCompleted} onchange={(event) => activeActivity!.sprintCompleted = event.currentTarget.checked} /></label>
+          <label class="flex cursor-pointer items-center justify-between gap-2 rounded-2xl bg-cream p-3"><span><span class="eyebrow">Sprint opzionale</span><span class="mt-1 block text-xs text-muted">Al massimo una seduta a settimana, se ben tollerata</span></span><input class="h-5 w-5 accent-[#315B47]" type="checkbox" disabled={!activeActivity.sprintCompleted && sprintUsed(activeActivity.date)} checked={activeActivity.sprintCompleted} onchange={(event) => activeActivity!.sprintCompleted = event.currentTarget.checked} /></label>
         </div>
       {/if}
 
@@ -1292,7 +1382,7 @@
                   <td class="border-b border-black/[0.05] py-3 pr-3"><span class="block text-xs font-semibold capitalize">{formatDate(session.date)}</span><span class="mt-0.5 block text-[0.58rem] font-bold uppercase tracking-wider text-muted">Seduta {session.type}</span></td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-center font-semibold tabular-nums">{logs.filter((set) => set.completed).length}</td>
                   <td class="border-b border-black/[0.05] px-2 py-3 text-right font-semibold tabular-nums">{historyReps(logs)}</td>
-                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums"><span class="block">{historyWeight(logs, historyExercise.exercise.unit)}</span>{#if historyMode === 'strength'}<span class="mt-0.5 block text-[0.6rem] font-bold uppercase tracking-wider text-muted">{historyEffort(logs)}</span>{/if}</td>
+                  <td class="whitespace-nowrap border-b border-black/[0.05] py-3 pl-2 text-right font-semibold tabular-nums"><span class="block">{historyWeight(logs, historyExercise.exercise.unit)}</span>{#if historyMode === 'cervical'}<span class="mt-2 block max-w-48 whitespace-normal text-xs">{logs.map(l=>`${l.side==='left'?'Sx ':l.side==='right'?'Dx ':''}${l.reps ?? 'NR'} × ${l.holdSeconds ?? 'NR'} sec · fatica ${l.effort ?? 'NR'}`).join('; ')}</span><span class="mt-2 block max-w-48 whitespace-normal text-xs">{bandDescription(session,historyExercise.exercise.id)}</span>{/if}{#if historyMode === 'strength'}<span class="mt-0.5 block text-[0.6rem] font-bold uppercase tracking-wider text-muted">{historyEffort(logs)}</span>{/if}</td>
                 </tr>
               {/each}
             </tbody>
@@ -1317,8 +1407,8 @@
 {/if}
 
 {#if activeGuide}
-  {@const guideExercise = workouts[activeGuide.type].exercises[activeGuide.index]}
-  {@const guide = exerciseGuides[activeGuide.exerciseId]}
+  {@const guideExercise = activeGuide.exercise}
+  {@const guide = activeGuide.exerciseId === 'neck' && activeSession?.trainingContext ? { ...allGuides.neck, equipment:'Nessuna resistenza esterna.', setup:'Collo neutro, spalle rilassate e movimenti leggeri.', steps:['Esegui i movimenti leggeri già concordati con il fisioterapista, comprese le eventuali rotazioni.', 'Mantieni due serie senza imporre tempi o ripetizioni non registrati.', 'Niente rotazioni resistite con elastici o mani.'], alternative:'Escludi il lavoro se non confortevole.' } : allGuides[activeGuide.exerciseId]}
   {@const illustratedExercises = workouts[activeGuide.type].exercises.filter((exercise) => !exerciseGuides[exercise.id].image)}
   {@const panelCount = illustratedExercises.length}
   {@const panelIndex = illustratedExercises.findIndex((exercise) => exercise.id === guideExercise.id)}
@@ -1333,6 +1423,8 @@
       <main class="px-5 pt-5">
         {#if guide.image}
           <img class="w-full rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" src={guide.image} alt={`Esecuzione illustrata di ${guideExercise.name}, posizione iniziale e finale`} />
+        {:else if guide.requiresDemonstration}
+          <section class="card p-4"><h2 class="text-lg font-bold">Dimostrazione del montaggio necessaria</h2><p class="mt-2 text-sm leading-6 text-muted">Configurazione visiva non verificata per il tuo caso: prima di attivare l’esercizio, chiedi al fisioterapista di dimostrare posizione della testa, direzione della tensione, punto di ancoraggio e percorso sicuro della banda. Non ricostruire il montaggio da immagini generiche.</p></section>
         {:else}
           <div class="overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-white shadow-card" style={`aspect-ratio: ${864 / (1821 / panelCount)}`}>
             <div class="relative h-full w-full overflow-hidden">
@@ -1348,6 +1440,7 @@
 
         <p class="eyebrow mt-6">Seduta {activeGuide.type} · esercizio {activeGuide.index + 1}</p>
         <h1 class="mt-2 text-4xl font-extrabold tracking-[-0.06em]">{guideExercise.name}</h1>
+        {#if guideExercise.technicalName}<p class="mt-2 text-sm text-muted">{guideExercise.technicalName} · {guideExercise.muscles}</p>{/if}
         <p class="mt-2 text-sm font-semibold text-moss">{guideExercise.sets} serie · {guideExercise.reps}</p>
 
         <section class="card mt-6 p-5">
