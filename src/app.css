@@ -15,3 +15,31 @@
   .eyebrow { @apply text-[0.68rem] font-bold uppercase tracking-[0.16em] text-muted; }
   .icon-button { @apply grid h-11 w-11 place-items-center rounded-full border border-black/10 bg-white transition active:scale-95; }
 }
+
+/* Shared by workout, cervical and activity effort controls. */
+
+  .effort-range {
+    height: 0.55rem;
+    appearance: none;
+    border-radius: 9999px;
+    cursor: pointer;
+  }
+
+  .effort-range::-webkit-slider-thumb {
+    height: 1.7rem;
+    width: 1.7rem;
+    appearance: none;
+    border: 4px solid white;
+    border-radius: 9999px;
+    background: #17211b;
+    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
+  }
+
+  .effort-range::-moz-range-thumb {
+    height: 1.2rem;
+    width: 1.2rem;
+    border: 4px solid white;
+    border-radius: 9999px;
+    background: #17211b;
+    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
+  }

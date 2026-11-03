@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
+  import { BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Dumbbell, EllipsisVertical, Footprints, History, Home, Lightbulb, LoaderCircle, LockKeyhole, Minus, Play, Plus, RotateCcw, Settings, Swords, Target, TriangleAlert, Wind, Wrench, X } from '@lucide/svelte';
   import { goto } from '$app/navigation';
   import { exerciseGuides, monthNumber, monthThemes, parseLocalDate, programEnd, schedule, workouts } from '$lib/program';
+  import ExerciseEffort from '$lib/components/ExerciseEffort.svelte';
+  import ExcludeExerciseDialog from '$lib/components/ExcludeExerciseDialog.svelte';
+  import { effortLevel, effortTrackStyle } from '$lib/effort';
   import CervicalExerciseControls from '$lib/components/CervicalExerciseControls.svelte';
   import { cervicalGuides } from '$lib/cervical-guides';
   import { newTrainingContext, novemberWeek, previousExercise, runTarget, seedLogs, sessionExercises } from '$lib/november';
@@ -99,6 +102,8 @@
   let toast = $state('');
   let infoOpen = $state(false);
   let activeGuide = $state<{ type: WorkoutType; exercise: Exercise; exerciseId: string; index: number } | null>(null);
+  let exerciseMenu = $state<string | null>(null);
+  let pendingExclusion = $state<Exercise | null>(null);
   let historyExercise = $state<{ exercise: Exercise; beforeDate: string } | null>(null);
   let sessions = $state<Record<string, Session>>(initialSessions());
   let activities = $state<Record<string, ActivityLog>>(initialActivities());
@@ -451,6 +456,8 @@
   }
 
   function openWorkout(date: string, type: WorkoutType, updateUrl = true) {
+    exerciseMenu = null;
+    pendingExclusion = null;
     if (updateUrl) {
       void goto(`/sedute/${date}`);
       return;
@@ -627,24 +634,6 @@
     queueAutoSave();
   }
 
-  const effortLevels = {
-    1: { label: 'Leggero', detail: 'Poco sforzo', color: '#315B47' },
-    2: { label: 'Giusto', detail: 'Impegnativo ma fluido', color: '#7FA53A' },
-    3: { label: 'Duro', detail: 'Fatica evidente', color: '#D38A24' },
-    4: { label: 'Al limite', detail: 'Fatica estrema', color: '#C84B31' }
-  } as const;
-
-  function effortLevel(value: number | null) {
-    return value && value in effortLevels ? effortLevels[value as keyof typeof effortLevels] : null;
-  }
-
-  function effortTrackStyle(value: number | null) {
-    const level = effortLevel(value);
-    const percentage = value === null ? 0 : ((value - 1) / 3) * 100;
-    const color = level?.color ?? '#DDE2DC';
-    return `background: linear-gradient(90deg, ${color} 0%, ${color} ${percentage}%, #DDE2DC ${percentage}%, #DDE2DC 100%)`;
-  }
-
   function inputActivityEffort(event: Event) {
     if (!activeActivity) return;
     activeActivity.rpe = Math.max(1, Math.min(4, Number((event.currentTarget as HTMLInputElement).value)));
@@ -669,9 +658,32 @@
     queueAutoSave(0);
   }
 
+  function requestExerciseExclusion(exercise: Exercise) {
+    exerciseMenu = null;
+    if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
+    if (activeSession.logs[exercise.id]?.every(set => set.skipped)) {
+      toggleExerciseSkipped(exercise.id);
+      return;
+    }
+    pendingExclusion = exercise;
+  }
+
+  function cancelExerciseExclusion() {
+    const id = pendingExclusion?.id;
+    pendingExclusion = null;
+    if (id) queueMicrotask(() => document.getElementById(`exercise-options-${id}`)?.focus());
+  }
+
+  function confirmExerciseExclusion() {
+    const id = pendingExclusion?.id;
+    cancelExerciseExclusion();
+    if (id) toggleExerciseSkipped(id);
+  }
+
   function toggleExerciseSkipped(exerciseId: string) {
     if (!activeSession || activeSession.completedAt || activeSession.skippedReason) return;
     const logs = activeSession.logs[exerciseId];
+    if (!logs?.length) return;
     const skipped = !logs.every((set) => set.skipped);
     for (const set of logs) {
       set.skipped = skipped;
@@ -776,6 +788,8 @@
     if (saving && savePromise) await savePromise;
     if (pendingChanges || autoSaveStatus === 'pending') await saveSession();
     activeSession = null;
+    exerciseMenu = null;
+    pendingExclusion = null;
     await goto('/');
   }
 
@@ -898,6 +912,8 @@
     return Boolean(session.completedAt || session.skippedReason || session.durationMinutes || session.cardioMinutes || session.notes.trim() || Object.values(session.logs).flat().some((set) => set.completed || set.skipped));
   }
 </script>
+
+<svelte:window onclick={() => exerciseMenu = null} onkeydown={event => { if (event.key === 'Escape') exerciseMenu = null; }} />
 
 <svelte:head><title>GetFit · Allenati bene</title></svelte:head>
 
@@ -1121,27 +1137,35 @@
             {@const exerciseLogs = activeSession.logs[exercise.id]}
             {@const exerciseSkipped = exerciseLogs.every((set) => set.skipped)}
             {@const exerciseEffort = exerciseLogs[0]?.effort ?? null}
-            {@const exerciseEffortLevel = effortLevel(exerciseEffort)}
             <section class="card overflow-hidden {exerciseSkipped ? 'opacity-70' : ''}">
               <header class="p-4">
-                <div class="flex items-baseline gap-3">
-                  <span class="shrink-0 text-xs font-semibold tabular-nums text-muted">{String(exerciseIndex + 1).padStart(2, '0')}</span>
-                  <h2 class="min-w-0 text-lg font-bold leading-snug tracking-[-0.03em]">{exercise.name}</h2>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex min-w-0 items-baseline gap-3 pt-2">
+                    <span class="shrink-0 text-xs font-semibold tabular-nums text-muted">{String(exerciseIndex + 1).padStart(2, '0')}</span>
+                    <h2 class="min-w-0 text-lg font-bold leading-snug tracking-[-0.03em]">{exercise.name}</h2>
+                  </div>
+                  <div class="relative shrink-0">
+                    <button id={`exercise-options-${exercise.id}`} type="button" class="grid h-11 w-11 place-items-center rounded-xl text-muted transition hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} aria-label={`Altre azioni per ${exercise.name}`} aria-expanded={exerciseMenu === exercise.id} aria-controls={`exercise-menu-${exercise.id}`} onclick={event => { event.stopPropagation(); exerciseMenu = exerciseMenu === exercise.id ? null : exercise.id; }}><EllipsisVertical size={18} /></button>
+                    {#if exerciseMenu === exercise.id}
+                      <div id={`exercise-menu-${exercise.id}`} class="absolute right-0 top-full z-20 mt-2 w-56 rounded-xl border border-black/10 bg-white p-2 shadow-card">
+                        <button type="button" class="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-muted hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss" onclick={() => requestExerciseExclusion(exercise)}>{#if exerciseSkipped}<RotateCcw size={16} /> Ripristina esercizio{:else}<X size={16} /> Escludi dalla seduta{/if}</button>
+                      </div>
+                    {/if}
+                  </div>
                 </div>
-                <div class="mt-4 grid grid-cols-3 gap-2" role="group" aria-label={`Azioni per ${exercise.name}`}>
+                <div class="mt-3 grid grid-cols-2 gap-2" role="group" aria-label={`Azioni per ${exercise.name}`}>
                   <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cream px-2 text-xs font-semibold text-moss transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss" onclick={() => activeGuide = { type: activeSession!.type, exercise, exerciseId: exercise.id, index: exerciseIndex }} aria-label={`Guida per ${exercise.name}`}><BookOpen size={16} /> Guida</button>
                   <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold text-muted transition hover:bg-cream active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss" onclick={() => historyExercise = { exercise, beforeDate: activeSession!.date }} aria-label={`Storico di ${exercise.name}`}><History size={16} /> Storico</button>
-                  <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moss disabled:opacity-40 {exerciseSkipped ? 'bg-amber-50 text-amber-800' : 'text-muted hover:bg-cream'}" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)} aria-label={exerciseSkipped ? `Ripristina ${exercise.name}` : `Escludi ${exercise.name} da questa seduta`}>{#if exerciseSkipped}<RotateCcw size={16} /> Ripristina{:else}<X size={16} /> Escludi{/if}</button>
                 </div>
               </header>
               {#if exerciseMode === 'strength' && !activeSession.trainingContext && !activeSession.completedAt && !activeSession.skippedReason}
                 <p class="px-5 pb-3 text-xs leading-5 text-moss">{suggestionFor(activeSession.type, exercise, activeSession.date).message}</p>
               {/if}
-              {#if exercise.note}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
-              {#if exerciseSkipped}<p class="mx-4 mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">Escluso volontariamente da questa seduta. Tocca ↻ per ripristinarlo.</p>{/if}
+              {#if exercise.note && exerciseMode !== 'cervical'}<p class="px-5 pb-3 text-xs leading-5 text-muted">{exercise.note}</p>{/if}
+              {#if exerciseSkipped}<div class="mx-4 mb-3 flex items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800"><span>Escluso da questa seduta.</span><button type="button" class="min-h-11 px-2 underline underline-offset-4 disabled:opacity-40" disabled={Boolean(activeSession.completedAt || activeSession.skippedReason)} onclick={() => toggleExerciseSkipped(exercise.id)}>Ripristina</button></div>{/if}
               <div class="border-t border-black/[0.05] p-4">
                 {#if exerciseMode === 'cervical' && activeSession.trainingContext}
-                  <CervicalExerciseControls {exercise} bind:logs={activeSession.logs[exercise.id]} bind:context={activeSession.trainingContext} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onchange={() => queueAutoSave()} />
+                  <CervicalExerciseControls {exercise} bind:logs={activeSession.logs[exercise.id]} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} onchange={() => queueAutoSave()} />
                 {:else if exerciseMode === 'strength'}
                   <p class="eyebrow mb-2">Uguale per tutte le serie</p>
                   <div class="grid grid-cols-2 gap-2">
@@ -1162,15 +1186,7 @@
                       </div>
                     </div>
                   </div>
-                  <div class="mt-3 rounded-2xl border border-black/[0.05] bg-cream p-4">
-                    <div class="flex items-center justify-between gap-3">
-                      <div><span class="block text-xs font-extrabold text-ink">Quanto ti ha affaticato?</span><span class="mt-0.5 block text-[0.68rem] text-muted">Un solo valore per tutto l'esercizio</span></div>
-                      <span class="rounded-full px-3 py-1.5 text-xs font-extrabold text-white shadow-sm" style={`background-color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel ? `${exerciseEffort}/4 · ${exerciseEffortLevel.label}` : 'Scegli 1–4'}</span>
-                    </div>
-                    <input class="effort-range mt-4 w-full disabled:opacity-50" style={effortTrackStyle(exerciseEffort)} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} type="range" min="1" max="4" step="1" value={exerciseEffort ?? 2} oninput={(event) => inputEffortForAll(exercise.id, event)} aria-label={`Fatica percepita per ${exercise.name}, da 1 a 4`} />
-                    <div class="mt-2 grid grid-cols-4 text-center text-[0.58rem] font-bold leading-3 text-muted"><span>1<br />Leggero</span><span>2<br />Giusto</span><span>3<br />Duro</span><span>4<br />Al limite</span></div>
-                    <p class="mt-3 text-center text-[0.65rem] font-semibold" style={`color: ${exerciseEffortLevel?.color ?? '#6D786F'}`}>{exerciseEffortLevel?.detail ?? 'Sposta la barra dopo aver finito l’esercizio'}</p>
-                  </div>
+                  <ExerciseEffort value={exerciseEffort} name={exercise.name} disabled={Boolean(activeSession.completedAt || activeSession.skippedReason) || exerciseSkipped} oninput={event => inputEffortForAll(exercise.id, event)} />
                 {:else if exerciseMode === 'timed'}
                   <div class="rounded-2xl bg-cream p-2">
                     <span class="block text-center text-[0.62rem] font-bold uppercase tracking-wider text-muted">Durata per ogni tenuta · secondi</span>
@@ -1463,30 +1479,9 @@
   <div class="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white shadow-card">{toast}</div>
 {/if}
 
-<style>
-  .effort-range {
-    height: 0.55rem;
-    appearance: none;
-    border-radius: 9999px;
-    cursor: pointer;
-  }
 
-  .effort-range::-webkit-slider-thumb {
-    height: 1.7rem;
-    width: 1.7rem;
-    appearance: none;
-    border: 4px solid white;
-    border-radius: 9999px;
-    background: #17211b;
-    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
-  }
 
-  .effort-range::-moz-range-thumb {
-    height: 1.2rem;
-    width: 1.2rem;
-    border: 4px solid white;
-    border-radius: 9999px;
-    background: #17211b;
-    box-shadow: 0 3px 10px rgba(23, 33, 27, 0.24);
-  }
-</style>
+
+{#if pendingExclusion && activeSession}
+  <ExcludeExerciseDialog name={pendingExclusion.name} onconfirm={confirmExerciseExclusion} oncancel={cancelExerciseExclusion} />
+{/if}
